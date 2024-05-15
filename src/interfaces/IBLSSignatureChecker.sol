@@ -66,10 +66,11 @@ interface IBLSSignatureChecker {
      * @dev Before signature verification, the function verifies operator stake information.  This includes ensuring that the provided `referenceBlockNumber`
      * is correct, i.e., ensure that the stake returned from the specified block number is recent enough and that the stake is either the most recent update
      * for the total stake (or the operator) or latest before the referenceBlockNumber.
+
+     ALIGNED: We remove quorums from here, we will use only one
      */
     function checkSignatures(
         bytes32 msgHash, 
-        bytes calldata quorumNumbers,
         uint32 referenceBlockNumber, 
         NonSignerStakesAndSignature memory nonSignerStakesAndSignature
     ) 
