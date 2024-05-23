@@ -69,7 +69,6 @@ interface IBLSSignatureChecker {
      */
     function checkSignatures(
         bytes32 msgHash, 
-        bytes calldata quorumNumbers,
         uint32 referenceBlockNumber, 
         NonSignerStakesAndSignature memory nonSignerStakesAndSignature
     ) 

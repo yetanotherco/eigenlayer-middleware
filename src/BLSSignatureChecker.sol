@@ -23,6 +23,8 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
     // gas cost of multiplying 2 pairings
     uint256 internal constant PAIRING_EQUALITY_CHECK_GAS = 120_000;
 
+    bytes internal constant ALIGNED_QUORUM_NUMBER = hex"00";
+
     IRegistryCoordinator public immutable registryCoordinator;
     IStakeRegistry public immutable stakeRegistry;
     IBLSApkRegistry public immutable blsApkRegistry;
@@ -79,7 +81,6 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
      * @dev NOTE: Be careful to ensure `msgHash` is collision-resistant! This method does not hash
      * `msgHash` in any way, so if an attacker is able to pass in an arbitrary value, they may be able
      * to tamper with signature verification.
-     * @param quorumNumbers is the bytes array of quorum numbers that are being signed for
      * @param referenceBlockNumber is the block number at which the stake information is being verified
      * @param params is the struct containing information on nonsigners, stakes, quorum apks, and the aggregate signature
      * @return quorumStakeTotals is the struct containing the total and signed stake for each quorum
@@ -87,20 +88,19 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
      */
     function checkSignatures(
         bytes32 msgHash,
-        bytes calldata quorumNumbers,
         uint32 referenceBlockNumber,
         NonSignerStakesAndSignature memory params
     ) public view returns (QuorumStakeTotals memory, bytes32) {
         require(
-            quorumNumbers.length != 0,
+            ALIGNED_QUORUM_NUMBER.length != 0,
             "BLSSignatureChecker.checkSignatures: empty quorum input"
         );
 
         require(
-            (quorumNumbers.length == params.quorumApks.length) &&
-                (quorumNumbers.length == params.quorumApkIndices.length) &&
-                (quorumNumbers.length == params.totalStakeIndices.length) &&
-                (quorumNumbers.length == params.nonSignerStakeIndices.length),
+            (ALIGNED_QUORUM_NUMBER.length == params.quorumApks.length) &&
+                (ALIGNED_QUORUM_NUMBER.length == params.quorumApkIndices.length) &&
+                (ALIGNED_QUORUM_NUMBER.length == params.totalStakeIndices.length) &&
+                (ALIGNED_QUORUM_NUMBER.length == params.nonSignerStakeIndices.length),
             "BLSSignatureChecker.checkSignatures: input quorum length mismatch"
         );
 
@@ -127,8 +127,8 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
         // at the referenceBlockNumber, and derive the stake held by signers by subtracting out
         // stakes held by nonsigners.
         QuorumStakeTotals memory stakeTotals;
-        stakeTotals.totalStakeForQuorum = new uint96[](quorumNumbers.length);
-        stakeTotals.signedStakeForQuorum = new uint96[](quorumNumbers.length);
+        stakeTotals.totalStakeForQuorum = new uint96[](ALIGNED_QUORUM_NUMBER.length);
+        stakeTotals.signedStakeForQuorum = new uint96[](ALIGNED_QUORUM_NUMBER.length);
 
         NonSignerInfo memory nonSigners;
         nonSigners.quorumBitmaps = new uint256[](
@@ -138,9 +138,9 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
 
         {
             // Get a bitmap of the quorums signing the message, and validate that
-            // quorumNumbers contains only unique, valid quorum numbers
+            // ALIGNED_QUORUM_NUMBER contains only unique, valid quorum numbers
             uint256 signingQuorumBitmap = BitmapUtils.orderedBytesArrayToBitmap(
-                quorumNumbers,
+                ALIGNED_QUORUM_NUMBER,
                 registryCoordinator.quorumCount()
             );
 
@@ -197,13 +197,13 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
                 ? delegation.minWithdrawalDelayBlocks()
                 : 0;
 
-            for (uint256 i = 0; i < quorumNumbers.length; i++) {
+            for (uint256 i = 0; i < ALIGNED_QUORUM_NUMBER.length; i++) {
                 // If we're disallowing stale stake updates, check that each quorum's last update block
                 // is within withdrawalDelayBlocks
                 if (_staleStakesForbidden) {
                     require(
                         registryCoordinator.quorumUpdateBlockNumber(
-                            uint8(quorumNumbers[i])
+                            uint8(ALIGNED_QUORUM_NUMBER[i])
                         ) +
                             withdrawalDelayBlocks >
                             referenceBlockNumber,
@@ -216,7 +216,7 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
                 require(
                     bytes24(params.quorumApks[i].hashG1Point()) ==
                         blsApkRegistry.getApkHashAtBlockNumberAndIndex({
-                            quorumNumber: uint8(quorumNumbers[i]),
+                            quorumNumber: uint8(ALIGNED_QUORUM_NUMBER[i]),
                             blockNumber: referenceBlockNumber,
                             index: params.quorumApkIndices[i]
                         }),
@@ -227,7 +227,7 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
                 // Get the total and starting signed stake for the quorum at referenceBlockNumber
                 stakeTotals.totalStakeForQuorum[i] = stakeRegistry
                     .getTotalStakeAtBlockNumberFromIndex({
-                        quorumNumber: uint8(quorumNumbers[i]),
+                        quorumNumber: uint8(ALIGNED_QUORUM_NUMBER[i]),
                         blockNumber: referenceBlockNumber,
                         index: params.totalStakeIndices[i]
                     });
@@ -244,12 +244,12 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
                     if (
                         BitmapUtils.isSet(
                             nonSigners.quorumBitmaps[j],
-                            uint8(quorumNumbers[i])
+                            uint8(ALIGNED_QUORUM_NUMBER[i])
                         )
                     ) {
                         stakeTotals.signedStakeForQuorum[i] -= stakeRegistry
                             .getStakeAtBlockNumberAndIndex({
-                                quorumNumber: uint8(quorumNumbers[i]),
+                                quorumNumber: uint8(ALIGNED_QUORUM_NUMBER[i]),
                                 blockNumber: referenceBlockNumber,
                                 operatorId: nonSigners.pubkeyHashes[j],
                                 index: params.nonSignerStakeIndices[i][
