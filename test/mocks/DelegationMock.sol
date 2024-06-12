@@ -168,8 +168,6 @@ contract DelegationMock is IDelegationManager {
         uint256[] calldata middlewareTimesIndexes,
         bool[] calldata receiveAsTokens
     ) external {}
-
-    function migrateQueuedWithdrawals(IStrategyManager.DeprecatedStruct_QueuedWithdrawal[] memory withdrawalsToQueue) external {}
     
     // onlyDelegationManager functions in StrategyManager
     function addShares(
