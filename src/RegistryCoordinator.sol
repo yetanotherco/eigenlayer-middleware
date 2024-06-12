@@ -21,6 +21,8 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/draft-EIP712.so
 import {Pausable} from "eigenlayer-contracts/src/contracts/permissions/Pausable.sol";
 import {RegistryCoordinatorStorage} from "./RegistryCoordinatorStorage.sol";
 
+import {Whitelist} from "./Whitelist.sol";
+
 /**
  * @title A `RegistryCoordinator` that has three registries:
  *      1) a `StakeRegistry` that keeps track of operators' stakes
@@ -36,7 +38,8 @@ contract RegistryCoordinator is
     OwnableUpgradeable,
     RegistryCoordinatorStorage, 
     ISocketUpdater, 
-    ISignatureUtils
+    ISignatureUtils,
+    Whitelist
 {
     using BitmapUtils for *;
     using BN254 for BN254.G1Point;
@@ -130,7 +133,7 @@ contract RegistryCoordinator is
         string calldata socket,
         IBLSApkRegistry.PubkeyRegistrationParams calldata params,
         SignatureWithSaltAndExpiry memory operatorSignature
-    ) external onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+    ) external onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) onlyWhitelisted {
         /**
          * If the operator has NEVER registered a pubkey before, use `params` to register
          * their pubkey in blsApkRegistry
@@ -181,7 +184,7 @@ contract RegistryCoordinator is
         OperatorKickParam[] calldata operatorKickParams,
         SignatureWithSaltAndExpiry memory churnApproverSignature,
         SignatureWithSaltAndExpiry memory operatorSignature
-    ) external onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+    ) external onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) onlyWhitelisted {
         require(operatorKickParams.length == quorumNumbers.length, "RegistryCoordinator.registerOperatorWithChurn: input length mismatch");
         
         /**
