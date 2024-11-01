@@ -3,6 +3,7 @@ pragma solidity ^0.8.12;
 
 import {IDelegationManager} from "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
 import {IAVSDirectory, OperatorSet} from "eigenlayer-contracts/src/contracts/interfaces/IAVSDirectory.sol";
+import {IAllocationManager} from "eigenlayer-contracts/src/contracts/interfaces/IAllocationManager.sol";
 import {IServiceManager} from "./interfaces/IServiceManager.sol";
 
 import {StakeRegistryStorage, IStrategy} from "./StakeRegistryStorage.sol";
@@ -229,6 +230,18 @@ contract StakeRegistry is StakeRegistryStorage {
         _setMinimumStakeForQuorum(quorumNumber, minimumStake);
     }
 
+    /**
+     * @notice Sets the stake type for the registry
+     * @param _stakeType The type of stake to track (TOTAL_DELEGATED, TOTAL_SLASHABLE, or BOTH)
+     */
+    function setStakeType(StakeType _stakeType) external onlyCoordinatorOwner {
+        _setStakeType(_stakeType);
+    }
+
+
+    function setSlashableStakeLookahead(uint32 _lookAheadPeriod) external onlyCoordinatorOwner {
+        _setLookAheadPeriod(_lookAheadPeriod);
+    }
     /** 
      * @notice Adds strategies and weights to the quorum
      * @dev Checks to make sure that the *same* strategy cannot be added multiple times (checks against both against existing and new strategies).
@@ -491,15 +504,17 @@ contract StakeRegistry is StakeRegistryStorage {
         uint256 stratsLength = strategyParamsLength(quorumNumber);
         StrategyParams memory strategyAndMultiplier;
 
-        uint256[] memory strategyShares;
-        //  = delegation.getDelegatableShares(operator, strategiesPerQuorum[quorumNumber]);
+        address[] memory operators = new address[](1);
+        operators[0] = operator;
+        uint32 beforeTimestamp = uint32(block.timestamp + slashableStakeLookAhead);
+        (uint256[][] memory strategyShares, ) = IAllocationManager(serviceManager.allocationManager()).getMinDelegatedAndSlashableOperatorShares(OperatorSet(address(serviceManager), quorumNumber), operators ,strategiesPerQuorum[quorumNumber], beforeTimestamp);
         for (uint256 i = 0; i < stratsLength; i++) {
             // accessing i^th StrategyParams struct for the quorumNumber
             strategyAndMultiplier = strategyParams[quorumNumber][i];
 
             // add the weight from the shares for this strategy to the total weight
-            if (strategyShares[i] > 0) {
-                weight += uint96(strategyShares[i] * strategyAndMultiplier.multiplier / WEIGHTING_DIVISOR);
+            if (strategyShares[i][0] > 0) {
+                weight += uint96(strategyShares[i][0] * strategyAndMultiplier.multiplier / WEIGHTING_DIVISOR);
             }
         }
 
@@ -730,6 +745,27 @@ contract StakeRegistry is StakeRegistryStorage {
         }
         return indices;
     }
+
+    /**
+     * @notice Sets the stake type for the registry
+     * @param _stakeType The type of stake to track (TOTAL_DELEGATED, TOTAL_SLASHABLE, or BOTH)
+     */
+    function _setStakeType(StakeType _stakeType) internal {
+        StakeType oldStakeType = stakeType;
+        stakeType = _stakeType;
+        emit StakeTypeSet(oldStakeType, _stakeType);
+    }
+
+    /**
+     * @notice Sets the look ahead time for checking operator shares
+     * @param _lookAheadDays The number of days to look ahead when checking shares
+     */
+    function _setLookAheadPeriod(uint32 _lookAheadDays) internal {
+        uint32 oldLookAheadDays = slashableStakeLookAhead;
+        slashableStakeLookAhead = _lookAheadDays;
+        emit LookAheadPeriodChanged(oldLookAheadDays, _lookAheadDays);
+    }
+
 
     function _checkRegistryCoordinator() internal view {
         require(
