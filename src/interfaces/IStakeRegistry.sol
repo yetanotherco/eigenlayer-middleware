@@ -12,11 +12,10 @@ import {IRegistry} from "./IRegistry.sol";
  */
 interface IStakeRegistry is IRegistry {
 
-  enum StakeType {
-         TOTAL_DELEGATED,
-         TOTAL_SLASHABLE,
-         BOTH
-     }
+    enum StakeType {
+        TOTAL_DELEGATED,
+        TOTAL_SLASHABLE
+    }
 
     // DATA STRUCTURES
 
