@@ -12,12 +12,12 @@ import {IRegistry} from "./IRegistry.sol";
  */
 interface IStakeRegistry is IRegistry {
 
-    enum StakeType {
-        TOTAL_DELEGATED,
-        TOTAL_SLASHABLE,
-        BOTH
-    }
-    
+  enum StakeType {
+         TOTAL_DELEGATED,
+         TOTAL_SLASHABLE,
+         BOTH
+     }
+
     // DATA STRUCTURES
 
     /// @notice struct used to store the stakes of an individual operator or the sum of all operators' stakes, for storage
@@ -80,8 +80,8 @@ interface IStakeRegistry is IRegistry {
      *         4) the operator is not already registered
      */
     function registerOperator(
-        address operator, 
-        bytes32 operatorId, 
+        address operator,
+        bytes32 operatorId,
         bytes memory quorumNumbers
     ) external returns (uint96[] memory, uint96[] memory);
 
@@ -200,7 +200,7 @@ interface IStakeRegistry is IRegistry {
 
     /**
      * @notice Returns the stake weight corresponding to `operatorId` for quorum `quorumNumber`, at the
-     * `index`-th entry in the `operatorIdToStakeHistory[operatorId][quorumNumber]` array if the entry 
+     * `index`-th entry in the `operatorIdToStakeHistory[operatorId][quorumNumber]` array if the entry
      * corresponds to the operator's stake at `blockNumber`. Reverts otherwise.
      * @param quorumNumber The quorum number to get the stake for.
      * @param operatorId The id of the operator of interest.
@@ -215,8 +215,8 @@ interface IStakeRegistry is IRegistry {
         returns (uint96);
 
     /**
-     * @notice Returns the total stake weight for quorum `quorumNumber`, at the `index`-th entry in the 
-     * `totalStakeHistory[quorumNumber]` array if the entry corresponds to the total stake at `blockNumber`. 
+     * @notice Returns the total stake weight for quorum `quorumNumber`, at the `index`-th entry in the
+     * `totalStakeHistory[quorumNumber]` array if the entry corresponds to the total stake at `blockNumber`.
      * Reverts otherwise.
      * @param quorumNumber The quorum number to get the stake for.
      * @param index Array index for lookup, within the dynamic array `totalStakeHistory[quorumNumber]`.
@@ -254,8 +254,8 @@ interface IStakeRegistry is IRegistry {
      * and should be deregistered.
      */
     function updateOperatorStake(
-        address operator, 
-        bytes32 operatorId, 
+        address operator,
+        bytes32 operatorId,
         bytes calldata quorumNumbers
     ) external returns (uint192);
 }
