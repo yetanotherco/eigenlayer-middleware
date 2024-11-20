@@ -6,16 +6,16 @@ import {IStrategy} from "eigenlayer-contracts/src/contracts/interfaces/IStrategy
 
 import {IRegistry} from "./IRegistry.sol";
 
+enum StakeType {
+    TOTAL_DELEGATED,
+    TOTAL_SLASHABLE
+}
+
 /**
  * @title Interface for a `Registry` that keeps track of stakes of operators for up to 256 quorums.
  * @author Layr Labs, Inc.
  */
 interface IStakeRegistry is IRegistry {
-
-    enum StakeType {
-        TOTAL_DELEGATED,
-        TOTAL_SLASHABLE
-    }
 
     // DATA STRUCTURES
 
@@ -53,7 +53,7 @@ interface IStakeRegistry is IRegistry {
     event LookAheadPeriodChanged(uint32 oldLookAheadDays, uint32 newLookAheadDays);
 
     /// @notice emitted when the stake type is updated
-    event StakeTypeSet(StakeType previousStakeType, StakeType newStakeType);
+    event StakeTypeSet(StakeType newStakeType);
     /// @notice emitted when the minimum stake for a quorum is updated
     event MinimumStakeForQuorumUpdated(uint8 indexed quorumNumber, uint96 minimumStake);
     /// @notice emitted when a new quorum is created
@@ -101,7 +101,20 @@ interface IStakeRegistry is IRegistry {
     /**
      * @notice Initialize a new quorum created by the registry coordinator by setting strategies, weights, and minimum stake
      */
-    function initializeQuorum(uint8 quorumNumber, uint96 minimumStake, StrategyParams[] memory strategyParams) external;
+    /// @notice Initialize a new quorum and push its first history update
+    function initializeDelegatedStakeQuorum(
+        uint8 quorumNumber,
+        uint96 minimumStake,
+        StrategyParams[] memory _strategyParams
+    ) external;
+
+    /// @notice Initialize a new quorum and push its first history update
+    function initializeSlashableStakeQuorum(
+        uint8 quorumNumber,
+        uint96 minimumStake,
+        uint32 lookAheadPeriod,
+        StrategyParams[] memory _strategyParams
+    ) external;
 
     /// @notice Adds new strategies and the associated multipliers to the @param quorumNumber.
     function addStrategies(
