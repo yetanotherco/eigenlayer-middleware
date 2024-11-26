@@ -24,9 +24,23 @@ contract Whitelist is OwnableUpgradeable {
         emit AddedToWhiteList(_address);
     }
 
+    function add_multiple(address[] memory _addresses) public onlyOwner {
+        for (uint256 i = 0; i < _addresses.length; i++) {
+            whitelist[_addresses[i]] = true;
+            emit AddedToWhiteList(_addresses[i]);
+        }
+    }
+
     function remove(address _address) public onlyOwner {
         whitelist[_address] = false;
         emit RemovedFromWhiteList(_address);
+    }
+
+    function remove_multiple(address[] memory _addresses) public onlyOwner {
+        for (uint256 i = 0; i < _addresses.length; i++) {
+            whitelist[_addresses[i]] = false;
+            emit RemovedFromWhiteList(_addresses[i]);
+        }
     }
 
     function isWhitelisted(address _address) public view returns (bool) {
