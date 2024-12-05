@@ -9,6 +9,7 @@ import { DelegationManager } from "eigenlayer-contracts/src/contracts/core/Deleg
 import { IDelegationManager, IDelegationManagerTypes } from "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
 import { RewardsCoordinator } from "eigenlayer-contracts/src/contracts/core/RewardsCoordinator.sol";
 import { IRewardsCoordinator } from "eigenlayer-contracts/src/contracts/interfaces/IRewardsCoordinator.sol";
+import { PermissionController } from "eigenlayer-contracts/src/contracts/permissions/PermissionController.sol";
 
 contract Test_CoreRegistration is MockAVSDeployer {
     // Contracts
@@ -27,7 +28,8 @@ contract Test_CoreRegistration is MockAVSDeployer {
         _deployMockEigenLayerAndAVS();
 
         // Deploy New DelegationManager
-        DelegationManager delegationManagerImplementation = new DelegationManager(avsDirectoryMock, IStrategyManager(address(strategyManagerMock)), eigenPodManagerMock, allocationManagerMock, 0);
+        PermissionController permissionController; // TODO: Fix
+        DelegationManager delegationManagerImplementation = new DelegationManager(avsDirectoryMock, IStrategyManager(address(strategyManagerMock)), eigenPodManagerMock, allocationManagerMock, pauserRegistry, permissionController, 0);
         IStrategy[] memory initializeStrategiesToSetDelayBlocks = new IStrategy[](0);
         uint256[] memory initializeWithdrawalDelayBlocks = new uint256[](0);
         delegationManager = DelegationManager(
@@ -49,7 +51,7 @@ contract Test_CoreRegistration is MockAVSDeployer {
         );
 
         // Deploy New AVS Directory
-        AVSDirectory avsDirectoryImplementation = new AVSDirectory(delegationManager, 0); // TODO: Fix Config
+        AVSDirectory avsDirectoryImplementation = new AVSDirectory(delegationManager, pauserRegistry); // TODO: Fix Config
         avsDirectory = AVSDirectory(
             address(
                 new TransparentUpgradeableProxy(
@@ -82,7 +84,8 @@ contract Test_CoreRegistration is MockAVSDeployer {
             stakeRegistry,
             blsApkRegistry,
             indexRegistry,
-            avsDirectory
+            avsDirectory,
+            pauserRegistry
         );
 
         // Upgrade Registry Coordinator & ServiceManager
@@ -104,11 +107,7 @@ contract Test_CoreRegistration is MockAVSDeployer {
         // Register operator to EigenLayer
         cheats.prank(operator);
         delegationManager.registerAsOperator(
-            IDelegationManagerTypes.OperatorDetails({
-                __deprecated_earningsReceiver: operator,
-                delegationApprover: address(0),
-                __deprecated_stakerOptOutWindowBlocks: 0
-            }),
+            operator,
             // TODO: fix or parameterize
             0,
             emptyStringForMetadataURI

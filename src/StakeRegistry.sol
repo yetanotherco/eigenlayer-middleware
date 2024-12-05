@@ -2,7 +2,8 @@
 pragma solidity ^0.8.12;
 
 import {IDelegationManager} from "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
-import {IAVSDirectory, OperatorSet} from "eigenlayer-contracts/src/contracts/interfaces/IAVSDirectory.sol";
+import {IAVSDirectory } from "eigenlayer-contracts/src/contracts/interfaces/IAVSDirectory.sol";
+import {OperatorSet} from "eigenlayer-contracts/src/contracts/interfaces/IAllocationManager.sol";
 import {IAllocationManager} from "eigenlayer-contracts/src/contracts/interfaces/IAllocationManager.sol";
 import {IServiceManager} from "./interfaces/IServiceManager.sol";
 
@@ -153,9 +154,9 @@ contract StakeRegistry is StakeRegistryStorage {
     ) external onlyRegistryCoordinator returns (uint192) {
         uint192 quorumsToRemove;
 
-        bool isOperatorSetAVS = avsDirectory.isOperatorSetAVS(
-                address(serviceManager)
-            );
+        bool isOperatorSetAVS;
+        // TODO: logic for determining if it's an operator set quorum number or not
+        // avsDirectory.isOperatorSetAVS(address(serviceManager));
 
         /**
          * For each quorum, update the operator's stake and record the delta
@@ -181,10 +182,12 @@ contract StakeRegistry is StakeRegistryStorage {
 
             // Get the AVSDirectory address from the RegistryCoordinator
             // Query the AVSDirectory to check if the operator is directly unregistered
-            operatorRegistered = avsDirectory.isMember(
-                operator,
-                OperatorSet(address(serviceManager), operatorSetId)
-            );
+            operatorRegistered;
+            // TODO: Fix
+            //  = avsDirectory.isMember(
+            //     operator,
+            //     OperatorSet(address(serviceManager), operatorSetId)
+            // );
 
             if (!hasMinimumStake || (isOperatorSetAVS && !operatorRegistered)) {
                 stakeWeight = 0;
@@ -526,8 +529,8 @@ contract StakeRegistry is StakeRegistryStorage {
         operators[0] = operator;
         uint32 beforeTimestamp = uint32(block.timestamp + slashableStakeLookAheadPerQuorum[quorumNumber]);
 
-        (,uint256[][] memory slashableShares) = IAllocationManager(serviceManager.allocationManager())
-            .getMinDelegatedAndSlashableOperatorShares(
+        uint256[][] memory slashableShares = IAllocationManager(serviceManager.allocationManager())
+            .getMinimumSlashableStake(
                 OperatorSet(address(serviceManager), quorumNumber),
                 operators,
                 strategiesPerQuorum[quorumNumber],
@@ -551,17 +554,23 @@ contract StakeRegistry is StakeRegistryStorage {
 
         if (stakeTypePerQuorum[quorumNumber]== StakeType.TOTAL_SLASHABLE) {
             strategyShares = _getSlashableStakePerStrategy(quorumNumber, operator);
+            for (uint256 i = 0; i < stratsLength; i++) {
+                strategyAndMultiplier = strategyParams[quorumNumber][i];
+                if (strategyShares[i] > 0) {
+                    weight += uint96(strategyShares[i] * strategyAndMultiplier.multiplier / WEIGHTING_DIVISOR);
+                }
+            }
         } else {
             /// M2 Concept of delegated stake
             strategyShares = delegation.getOperatorShares(operator, strategiesPerQuorum[quorumNumber]);
-        }
-        for (uint256 i = 0; i < stratsLength; i++) {
-            // accessing i^th StrategyParams struct for the quorumNumber
-            strategyAndMultiplier = strategyParams[quorumNumber][i];
+            for (uint256 i = 0; i < stratsLength; i++) {
+                // accessing i^th StrategyParams struct for the quorumNumber
+                strategyAndMultiplier = strategyParams[quorumNumber][i];
 
-            // add the weight from the shares for this strategy to the total weight
-            if (strategyShares[i] > 0) {
-                weight += uint96(strategyShares[i] * strategyAndMultiplier.multiplier / WEIGHTING_DIVISOR);
+                // add the weight from the shares for this strategy to the total weight
+                if (strategyShares[i] > 0) {
+                    weight += uint96(strategyShares[i] * strategyAndMultiplier.multiplier / WEIGHTING_DIVISOR);
+                }
             }
         }
 

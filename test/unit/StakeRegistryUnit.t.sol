@@ -49,7 +49,8 @@ contract StakeRegistryUnitTests is MockAVSDeployer, IStakeRegistryEvents {
             stakeRegistry,
             IBLSApkRegistry(blsApkRegistry),
             IIndexRegistry(indexRegistry),
-            IAVSDirectory(avsDirectory)
+            IAVSDirectory(avsDirectory),
+            pauserRegistry
         );
 
         stakeRegistryImplementation = new StakeRegistryHarness(
@@ -2171,7 +2172,7 @@ contract StakeRegistryUnitTests_weightOfOperatorForQuorum is StakeRegistryUnitTe
      * successfully and return a value for weightOfOperatorForQuorum. Fuzz test sets the operator shares
      * and asserts that the summed weight of the operator is correct.
      */
-    function test_weightOfOperatorForQuorum(
+    function testFuzz_weightOfOperatorForQuorum(
         address operator,
         uint96[] memory multipliers,
         uint96[] memory shares
@@ -2226,7 +2227,7 @@ contract StakeRegistryUnitTests_weightOfOperatorForQuorum is StakeRegistryUnitTe
     }
 
     /// @dev consider multipliers for 3 strategies
-    function test_weightOfOperatorForQuorum_3Strategies(
+    function testFuzz_weightOfOperatorForQuorum_3Strategies(
         address operator,
         uint96[3] memory shares
     ) public {

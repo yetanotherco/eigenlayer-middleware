@@ -8,6 +8,7 @@ import {
     IRewardsCoordinatorTypes,
     IERC20
 } from "eigenlayer-contracts/src/contracts/core/RewardsCoordinator.sol";
+import {PermissionController} from "eigenlayer-contracts/src/contracts/permissions/PermissionController.sol";
 import {StrategyBase} from "eigenlayer-contracts/src/contracts/strategies/StrategyBase.sol";
 import {IStrategyManager} from "eigenlayer-contracts/src/contracts/interfaces/IStrategyManager.sol";
 import {IServiceManagerBaseEvents} from "../events/IServiceManagerBaseEvents.sol";
@@ -56,6 +57,9 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         rewardsCoordinatorImplementation = new RewardsCoordinator(
             delegationMock,
             IStrategyManager(address(strategyManagerMock)),
+            allocationManagerMock,
+            pauserRegistry,
+            permissionControllerMock,
             CALCULATION_INTERVAL_SECONDS,
             MAX_REWARDS_DURATION,
             MAX_RETROACTIVE_LENGTH,
@@ -71,7 +75,6 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
                     abi.encodeWithSelector(
                         RewardsCoordinator.initialize.selector,
                         msg.sender,
-                        pauserRegistry,
                         0, /*initialPausedStatus*/
                         rewardsUpdater,
                         activationDelay,
@@ -146,7 +149,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         IERC20 token3 = new ERC20PresetFixedSupply(
             "pepe wif avs", "MOCK3", mockTokenInitialSupply, address(this)
         );
-        strategyImplementation = new StrategyBase(IStrategyManager(address(strategyManagerMock)));
+        strategyImplementation = new StrategyBase(IStrategyManager(address(strategyManagerMock)), pauserRegistry);
         strategyMock1 = StrategyBase(
             address(
                 new TransparentUpgradeableProxy(
@@ -248,7 +251,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         serviceManager.createAVSRewardsSubmission(rewardsSubmissions);
     }
 
-    function test_createAVSRewardsSubmission_SingleSubmission(
+    function testFuzz_createAVSRewardsSubmission_SingleSubmission(
         uint256 startTimestamp,
         uint256 duration,
         uint256 amount
@@ -325,7 +328,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         );
     }
 
-    function test_createAVSRewardsSubmission_MultipleSubmissions(
+    function testFuzz_createAVSRewardsSubmission_MultipleSubmissions(
         uint256 startTimestamp,
         uint256 duration,
         uint256 amount,
@@ -418,7 +421,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         }
     }
 
-    function test_createAVSRewardsSubmission_MultipleSubmissionsSingleToken(
+    function testFuzz_createAVSRewardsSubmission_MultipleSubmissionsSingleToken(
         uint256 startTimestamp,
         uint256 duration,
         uint256 amount,
