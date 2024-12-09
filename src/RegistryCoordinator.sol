@@ -24,6 +24,8 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/draft-EIP712.so
 
 import {Pausable} from "eigenlayer-contracts/src/contracts/permissions/Pausable.sol";
 import {RegistryCoordinatorStorage} from "./RegistryCoordinatorStorage.sol";
+import {IAVSRegistrar} from "eigenlayer-contracts/src/contracts/interfaces/IAVSRegistrar.sol";
+
 
 /**
  * @title A `RegistryCoordinator` that has three registries:
@@ -45,8 +47,6 @@ contract RegistryCoordinator is
 {
     using BitmapUtils for *;
     using BN254 for BN254.G1Point;
-
-    bool isOperatorSetAVS;
 
     modifier onlyEjector() {
         _checkEjector();
@@ -143,7 +143,7 @@ contract RegistryCoordinator is
         IBLSApkRegistry.PubkeyRegistrationParams memory params,
         SignatureWithSaltAndExpiry memory operatorSignature
     ) external onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
-        if (isUsingOperatorSets()) revert();
+        require(!isUsingOperatorSets(), "RegistryCoordinator.registerOperator: operator sets enabled");
         /**
          * If the operator has NEVER registered a pubkey before, use `params` to register
          * their pubkey in blsApkRegistry
@@ -195,7 +195,7 @@ contract RegistryCoordinator is
         SignatureWithSaltAndExpiry memory churnApproverSignature,
         SignatureWithSaltAndExpiry memory operatorSignature
     ) external onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
-        if (isUsingOperatorSets()) revert();
+        require(!isUsingOperatorSets(), "RegistryCoordinator.registerOperatorWithChurn: operator sets not supported");
         require(
             operatorKickParams.length == quorumNumbers.length,
             "RegistryCoordinator.registerOperatorWithChurn: input length mismatch"
@@ -260,6 +260,16 @@ contract RegistryCoordinator is
         external
         onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR)
     {
+        // Check that either:
+        // 1. The AVS hasn't migrated to operator sets yet (!isOperatorSetAVS), or
+        // 2. The AVS has migrated but this is an M2 quorum
+        for (uint256 i = 0; i < quorumNumbers.length; i++) {
+            uint8 quorumNumber = uint8(quorumNumbers[i]);
+            require(
+                !isOperatorSetAVS || isM2Quorum[quorumNumber],
+                "RegistryCoordinator.deregisterOperator: cannot deregister from non-M2 quorum after operator sets enabled"
+            );
+        }
         _deregisterOperator({operator: msg.sender, quorumNumbers: quorumNumbers});
     }
 
@@ -268,10 +278,20 @@ contract RegistryCoordinator is
     }
 
     function enableOperatorSets() external onlyOwner {
-        /// TODO:
-        /// Triggers the updates to use operator sets
-        /// Opens update the AVS Registrar Hooks on this contract
+        /// Triggers the updates to use operator sets ie setsAVSRegistrar
+        /// Opens up the AVS Registrar Hooks on this contract to be callable by the ALM
         /// Allows creation of quorums with slashable and total delegated stake for operator sets
+        /// Sets all quorums created before this call as m2 quorums in a mapping so that we can gate function calls to deregister
+        /// M2 Registrations turn off once migrated.  M2 deregistration remain open for only m2 quorums
+        // Set this contract as the AVS registrar in the service manager
+        serviceManager.setAVSRegistrar(IAVSRegistrar(address(this)));
+
+        // Set all existing quorums as m2 quorums
+        for (uint8 i = 0; i < quorumCount; i++) {
+            isM2Quorum[i] = true;
+        }
+
+        // Enable operator sets mode
         isOperatorSetAVS = true;
     }
 
@@ -279,10 +299,11 @@ contract RegistryCoordinator is
         address operator,
         uint32[] memory operatorSetIds,
         bytes memory data
-    ) external override {
-        if (!isUsingOperatorSets()) revert();
-        /// TODO: Make a mapping for quorums associated with operator sets / ones associated with m2 registrations
-        /// TODO: only allow registration of operator sets that have been created in the core and don't conflict with existing quorum numbers
+    ) external override onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+        require(isUsingOperatorSets(), "RegistryCoordinator.registerOperator: operator sets not enabled");
+        for (uint256 i = 0; i < operatorSetIds.length; i++) {
+            require(!isM2Quorum[uint8(operatorSetIds[i])], "RegistryCoordinator.registerOperator: cannot register for M2 quorum");
+        }
         require(msg.sender == address(serviceManager.allocationManager()), "Only allocation manager can register operators");
 
         // Decode registration data from bytes
@@ -299,26 +320,28 @@ contract RegistryCoordinator is
         }
 
         // Register operator with decoded parameters
-        _registerOperatorNew({
+        _registerOperatorToOperatorSet({
             operator: operator,
             operatorId: operatorId,
             quorumNumbers: quorumNumbers,
             socket: socket
         });
 
-        /// TODO: Correctly handle decoding the registration with churn and the normal registration flow parameters
+        /// TODO: Register with Churn doesn't seem to be used in practice.  I would advocate for not even handling the
+        /// the case and just killing off the function.  This would free up code size as well
+        /// TODO: alternatively, Correctly handle decoding the registration with churn and the normal registration flow parameters
 
     }
 
     function deregisterOperator(
         address operator,
         uint32[] memory operatorSetIds
-    ) external override {
-        if (!isUsingOperatorSets()) revert();
+    ) external override onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+        require(isUsingOperatorSets(), "RegistryCoordinator.deregisterOperator: operator sets not enabled");
+        for (uint256 i = 0; i < operatorSetIds.length; i++) {
+            require(!isM2Quorum[uint8(operatorSetIds[i])], "RegistryCoordinator.deregisterOperator: cannot deregister from M2 quorum");
+        }
         require(msg.sender == address(serviceManager.allocationManager()), "Only allocation manager can register operators");
-        /// TODO: Make a mapping for quorums associated with operator sets / ones associated with m2 registrations
-        /// TODO: Call _registerOperator to propogate changes to the other contracts
-        /// TODO: only allow deregistration of operator sets that have been created in the core and don't conflict with existing quorum numbers
         bytes memory quorumNumbers = new bytes(operatorSetIds.length);
         for (uint256 i = 0; i < operatorSetIds.length; i++) {
             quorumNumbers[i] = bytes1(uint8(operatorSetIds[i]));
@@ -478,13 +501,15 @@ contract RegistryCoordinator is
      * registered
      * @param strategyParams a list of strategies and multipliers used by the StakeRegistry to
      * calculate an operator's stake weight for the quorum
+     *  @dev For m2 AVS this function has the same behavior as createQuorum before
+     *       For migrated AVS that enable operator sets this will create a quorum that measures total delegated stake for operator set
+     *
      */
     function createTotalDelegatedStakeQuorum(
         OperatorSetParam memory operatorSetParams,
         uint96 minimumStake,
         IStakeRegistry.StrategyParams[] memory strategyParams
     ) external virtual onlyOwner {
-        if (!isUsingOperatorSets()) revert ();
         _createQuorum(operatorSetParams, minimumStake, strategyParams, StakeType.TOTAL_DELEGATED, 0);
     }
 
@@ -494,7 +519,7 @@ contract RegistryCoordinator is
         IStakeRegistry.StrategyParams[] memory strategyParams,
         uint32 lookAheadPeriod
     ) external virtual onlyOwner {
-        if (!isUsingOperatorSets()) revert ();
+        require(isUsingOperatorSets(), "RegistryCoordinator.createSlashableStakeQuorum: operator sets not enabled");
         _createQuorum(operatorSetParams, minimumStake, strategyParams, StakeType.TOTAL_SLASHABLE, lookAheadPeriod);
     }
 
@@ -620,7 +645,7 @@ contract RegistryCoordinator is
      * @notice Register the operator for one or more quorums. This method updates the
      * operator's quorum bitmap, socket, and status, then registers them with each registry.
      */
-    function _registerOperatorNew(
+    function _registerOperatorToOperatorSet(
         address operator,
         bytes32 operatorId,
         bytes memory quorumNumbers,
@@ -682,6 +707,10 @@ contract RegistryCoordinator is
         require(msg.sender == ejector, "RegistryCoordinator.onlyEjector: not ejector");
     }
 
+    function _checkAllocationManager() internal view {
+        address allocationManager = address(serviceManager.allocationManager());
+        require(msg.sender == allocationManager, "RegistryCoordinator.onlyAllocationManager: not allocation manager");
+    }
     /**
      * @notice Checks if a quorum exists
      * @param quorumNumber The quorum number to check
@@ -799,46 +828,16 @@ contract RegistryCoordinator is
         // Update operator's bitmap and status
         _updateOperatorBitmap({operatorId: operatorId, newBitmap: newBitmap});
 
-
-        /// TODO: Need to know if an AVS is an operator set avs
-        bool operatorSetAVS;
+        bool operatorSetAVS = isUsingOperatorSets();
         //  = IAVSDirectory(serviceManager.avsDirectory()).isOperatorSetAVS(address(serviceManager));
         if (operatorSetAVS){
             bytes memory quorumBytes = BitmapUtils.bitmapToBytesArray(quorumsToRemove);
             uint32[] memory operatorSetIds = new uint32[](quorumBytes.length);
-            uint256 forceDeregistrationCount;
             for (uint256 i = 0; i < quorumBytes.length; i++) {
-                /// Post operator sets feature we need to track forceDeregistrations so we don't pass an id that was already deregistered on the AVSDirectory
-                /// but hasnt yet been recorded in the middleware contracts
-
-                // TODO: Fix need a way to check member ship in the allocation manager without iterating through every member
-
-                // if (!avsDirectory.isMember(operator, OperatorSet(address(serviceManager), uint8(quorumBytes[i])))){
-                //     forceDeregistrationCount++;
-                // }
                 operatorSetIds[i] = uint8(quorumBytes[i]);
             }
 
-            /// Filter out forceDeregistration operator set Ids
-            if (forceDeregistrationCount > 0 ){
-                uint32[] memory filteredOperatorSetIds = new uint32[](operatorSetIds.length - forceDeregistrationCount);
-                uint256 offset;
-                for (uint256 i; i < operatorSetIds.length; i++){
-                    if (true){
-                        /// TODO: Fix need to check
-                        // avsDirectory.isMember(operator, OperatorSet(address(serviceManager), operatorSetIds[i]))){
-                        filteredOperatorSetIds[i] = operatorSetIds[i+offset];
-                    } else {
-                        offset++;
-                    }
-                }
-                serviceManager.deregisterOperatorFromOperatorSets(operator, filteredOperatorSetIds);
-            } else {
-                serviceManager.deregisterOperatorFromOperatorSets(operator, operatorSetIds);
-
-            }
-
-
+            serviceManager.deregisterOperatorFromOperatorSets(operator, operatorSetIds);
         } else {
             // If the operator is no longer registered for any quorums, update their status and deregister
             // them from the AVS via the EigenLayer core contracts
