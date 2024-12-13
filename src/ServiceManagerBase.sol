@@ -117,7 +117,7 @@ abstract contract ServiceManagerBase is ServiceManagerBaseStorage {
             );
         }
 
-        _rewardsCoordinator.createAVSRewardsSubmission(address(this),rewardsSubmissions);
+        _rewardsCoordinator.createAVSRewardsSubmission(rewardsSubmissions);
     }
 
     function createOperatorSets(uint32[] memory operatorSetIds) external onlyRegistryCoordinator {
