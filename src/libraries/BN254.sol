@@ -19,7 +19,7 @@
 
 // The remainder of the code in this library is written by LayrLabs Inc. and is also under an MIT license
 
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 /**
  * @title Library for operations on the BN254 elliptic curve.
@@ -122,7 +122,7 @@ library BN254 {
      * @param p the point to multiply
      * @param s the scalar to multiply by
      * @dev this function is only safe to use if the scalar is 9 bits or less
-     */ 
+     */
     function scalar_mul_tiny(BN254.G1Point memory p, uint16 s) internal view returns (BN254.G1Point memory) {
         require(s < 2**9, "scalar-too-large");
 
@@ -155,7 +155,7 @@ library BN254 {
                 ++i;
             }
         }
-        
+
         // return the accumulated product
         return acc;
     }

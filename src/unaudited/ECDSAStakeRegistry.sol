@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import {ECDSAStakeRegistryStorage, Quorum, StrategyParams} from "./ECDSAStakeRegistryStorage.sol";
 import {IStrategy} from "eigenlayer-contracts/src/contracts/interfaces/IStrategy.sol";
@@ -248,7 +248,7 @@ contract ECDSAStakeRegistry is
         for (uint256 i; i < strategyParams.length; i++) {
             strategies[i] = strategyParams[i].strategy;
         }
-        uint256[] memory shares = DELEGATION_MANAGER.getOperatorShares(
+        uint256[] memory shares  = DELEGATION_MANAGER.getOperatorShares(
             _operator,
             strategies
         );

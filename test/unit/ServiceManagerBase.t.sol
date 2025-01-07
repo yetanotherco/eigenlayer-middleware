@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import "@openzeppelin/contracts/token/ERC20/presets/ERC20PresetFixedSupply.sol";
 import {
     RewardsCoordinator,
     IRewardsCoordinator,
+    IRewardsCoordinatorTypes,
     IERC20
 } from "eigenlayer-contracts/src/contracts/core/RewardsCoordinator.sol";
+import {PermissionController} from "eigenlayer-contracts/src/contracts/permissions/PermissionController.sol";
 import {StrategyBase} from "eigenlayer-contracts/src/contracts/strategies/StrategyBase.sol";
+import {IStrategyManager} from "eigenlayer-contracts/src/contracts/interfaces/IStrategyManager.sol";
 import {IServiceManagerBaseEvents} from "../events/IServiceManagerBaseEvents.sol";
 
 import "../utils/MockAVSDeployer.sol";
@@ -21,6 +24,9 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
     uint32 MAX_FUTURE_LENGTH = 28 days;
     uint32 GENESIS_REWARDS_TIMESTAMP = 1_712_188_800;
     uint256 MAX_REWARDS_AMOUNT = 1e38 - 1;
+    uint32 OPERATOR_SET_GENESIS_REWARDS_TIMESTAMP = 0; /// TODO: what values should these have
+    uint32 OPERATOR_SET_MAX_RETROACTIVE_LENGTH = 0; /// TODO: What values these should have
+
     /// @notice Delay in timestamp before a posted root can be claimed against
     uint32 activationDelay = 7 days;
     /// @notice the commission for all operators across all avss
@@ -50,7 +56,10 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         // Deploy rewards coordinator
         rewardsCoordinatorImplementation = new RewardsCoordinator(
             delegationMock,
-            strategyManagerMock,
+            IStrategyManager(address(strategyManagerMock)),
+            allocationManagerMock,
+            pauserRegistry,
+            permissionControllerMock,
             CALCULATION_INTERVAL_SECONDS,
             MAX_REWARDS_DURATION,
             MAX_RETROACTIVE_LENGTH,
@@ -66,7 +75,6 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
                     abi.encodeWithSelector(
                         RewardsCoordinator.initialize.selector,
                         msg.sender,
-                        pauserRegistry,
                         0, /*initialPausedStatus*/
                         rewardsUpdater,
                         activationDelay,
@@ -80,7 +88,8 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
             avsDirectory,
             rewardsCoordinator,
             registryCoordinatorImplementation,
-            stakeRegistryImplementation
+            stakeRegistryImplementation,
+            allocationManagerImplementation
         );
 
         serviceManager = ServiceManagerMock(
@@ -89,7 +98,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
                     address(serviceManagerImplementation),
                     address(proxyAdmin),
                     abi.encodeWithSelector(
-                        ServiceManagerMock.initialize.selector, msg.sender, msg.sender
+                        ServiceManagerMock.initialize.selector, serviceManager.owner(), msg.sender, msg.sender
                     )
                 )
             )
@@ -140,7 +149,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         IERC20 token3 = new ERC20PresetFixedSupply(
             "pepe wif avs", "MOCK3", mockTokenInitialSupply, address(this)
         );
-        strategyImplementation = new StrategyBase(strategyManagerMock);
+        strategyImplementation = new StrategyBase(IStrategyManager(address(strategyManagerMock)), pauserRegistry);
         strategyMock1 = StrategyBase(
             address(
                 new TransparentUpgradeableProxy(
@@ -179,13 +188,13 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         strategyManagerMock.setStrategyWhitelist(strategies[2], true);
 
         defaultStrategyAndMultipliers.push(
-            IRewardsCoordinator.StrategyAndMultiplier(IStrategy(address(strategies[0])), 1e18)
+            IRewardsCoordinatorTypes.StrategyAndMultiplier(IStrategy(address(strategies[0])), 1e18)
         );
         defaultStrategyAndMultipliers.push(
-            IRewardsCoordinator.StrategyAndMultiplier(IStrategy(address(strategies[1])), 2e18)
+            IRewardsCoordinatorTypes.StrategyAndMultiplier(IStrategy(address(strategies[1])), 2e18)
         );
         defaultStrategyAndMultipliers.push(
-            IRewardsCoordinator.StrategyAndMultiplier(IStrategy(address(strategies[2])), 3e18)
+            IRewardsCoordinatorTypes.StrategyAndMultiplier(IStrategy(address(strategies[2])), 3e18)
         );
     }
 
@@ -227,9 +236,9 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
             "dog wif hat", "MOCK1", mockTokenInitialSupply, rewardsInitiator
         );
 
-        IRewardsCoordinator.RewardsSubmission[] memory rewardsSubmissions =
-            new IRewardsCoordinator.RewardsSubmission[](1);
-        rewardsSubmissions[0] = IRewardsCoordinator.RewardsSubmission({
+        IRewardsCoordinatorTypes.RewardsSubmission[] memory rewardsSubmissions =
+            new IRewardsCoordinatorTypes.RewardsSubmission[](1);
+        rewardsSubmissions[0] = IRewardsCoordinatorTypes.RewardsSubmission({
             strategiesAndMultipliers: defaultStrategyAndMultipliers,
             token: token,
             amount: 100,
@@ -242,7 +251,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         serviceManager.createAVSRewardsSubmission(rewardsSubmissions);
     }
 
-    function test_createAVSRewardsSubmission_SingleSubmission(
+    function testFuzz_createAVSRewardsSubmission_SingleSubmission(
         uint256 startTimestamp,
         uint256 duration,
         uint256 amount
@@ -266,9 +275,9 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         startTimestamp = startTimestamp - (startTimestamp % CALCULATION_INTERVAL_SECONDS);
 
         // 2. Create reward submission input param
-        IRewardsCoordinator.RewardsSubmission[] memory rewardsSubmissions =
-            new IRewardsCoordinator.RewardsSubmission[](1);
-        rewardsSubmissions[0] = IRewardsCoordinator.RewardsSubmission({
+        IRewardsCoordinatorTypes.RewardsSubmission[] memory rewardsSubmissions =
+            new IRewardsCoordinatorTypes.RewardsSubmission[](1);
+        rewardsSubmissions[0] = IRewardsCoordinatorTypes.RewardsSubmission({
             strategiesAndMultipliers: defaultStrategyAndMultipliers,
             token: rewardToken,
             amount: amount,
@@ -319,7 +328,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         );
     }
 
-    function test_createAVSRewardsSubmission_MultipleSubmissions(
+    function testFuzz_createAVSRewardsSubmission_MultipleSubmissions(
         uint256 startTimestamp,
         uint256 duration,
         uint256 amount,
@@ -359,7 +368,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
             startTimestamp = startTimestamp - (startTimestamp % CALCULATION_INTERVAL_SECONDS);
 
             // 2. Create reward submission input param
-            IRewardsCoordinator.RewardsSubmission memory rewardsSubmission = IRewardsCoordinator.RewardsSubmission({
+            IRewardsCoordinatorTypes.RewardsSubmission memory rewardsSubmission = IRewardsCoordinatorTypes.RewardsSubmission({
                 strategiesAndMultipliers: defaultStrategyAndMultipliers,
                 token: rewardTokens[i],
                 amount: amounts[i],
@@ -412,7 +421,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
         }
     }
 
-    function test_createAVSRewardsSubmission_MultipleSubmissionsSingleToken(
+    function testFuzz_createAVSRewardsSubmission_MultipleSubmissionsSingleToken(
         uint256 startTimestamp,
         uint256 duration,
         uint256 amount,
@@ -457,7 +466,7 @@ contract ServiceManagerBase_UnitTests is MockAVSDeployer, IServiceManagerBaseEve
             startTimestamp = startTimestamp - (startTimestamp % CALCULATION_INTERVAL_SECONDS);
 
             // 2. Create reward submission input param
-            IRewardsCoordinator.RewardsSubmission memory rewardsSubmission = IRewardsCoordinator.RewardsSubmission({
+            IRewardsCoordinatorTypes.RewardsSubmission memory rewardsSubmission = IRewardsCoordinatorTypes.RewardsSubmission({
                 strategiesAndMultipliers: defaultStrategyAndMultipliers,
                 token: rewardToken,
                 amount: amounts[i],

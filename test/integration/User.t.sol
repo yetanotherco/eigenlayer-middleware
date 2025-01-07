@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
@@ -11,6 +11,7 @@ import "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
 
 // Core
 import "eigenlayer-contracts/src/contracts/core/DelegationManager.sol";
+import "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
 import "eigenlayer-contracts/src/contracts/core/StrategyManager.sol";
 import "eigenlayer-contracts/src/contracts/core/AVSDirectory.sol";
 
@@ -56,7 +57,7 @@ contract User is Test {
     BLSApkRegistry blsApkRegistry;
     StakeRegistry stakeRegistry;
     IndexRegistry indexRegistry;
-    
+
     TimeMachine timeMachine;
 
     uint churnApproverPrivateKey;
@@ -146,12 +147,12 @@ contract User is Test {
         assertEq(churnQuorums.length, churnTargets.length, "User.registerOperatorWithChurn: input length mismatch");
         assertTrue(churnBitmap.noBitsInCommon(standardBitmap), "User.registerOperatorWithChurn: input quorums have common bits");
 
-        bytes memory allQuorums = 
+        bytes memory allQuorums =
             churnBitmap
                 .plus(standardBitmap)
                 .bitmapToBytesArray();
 
-        IRegistryCoordinator.OperatorKickParam[] memory kickParams 
+        IRegistryCoordinator.OperatorKickParam[] memory kickParams
             = new IRegistryCoordinator.OperatorKickParam[](allQuorums.length);
 
         // this constructs OperatorKickParam[] in ascending quorum order
@@ -243,13 +244,8 @@ contract User is Test {
     function registerAsOperator() public createSnapshot virtual {
         _log("registerAsOperator (core)");
 
-        IDelegationManager.OperatorDetails memory details = IDelegationManager.OperatorDetails({
-            __deprecated_earningsReceiver: address(this),
-            delegationApprover: address(0),
-            stakerOptOutWindowBlocks: 0
-        });
-
-        delegationManager.registerAsOperator(details, NAME);
+        /// TODO: check
+        delegationManager.registerAsOperator(msg.sender,0, NAME);
     }
 
     // Deposit LSTs into the StrategyManager. This setup does not use the EPMgr or native ETH.
@@ -266,15 +262,15 @@ contract User is Test {
         }
     }
 
-    function exitEigenlayer() public createSnapshot virtual returns (IStrategy[] memory, uint[] memory) {
+    function exitEigenlayer() public createSnapshot virtual returns (IStrategy[] memory, uint256[] memory) {
         _log("exitEigenlayer (core)");
 
-        (IStrategy[] memory strategies, uint[] memory shares) = delegationManager.getDelegatableShares(address(this));
+        (IStrategy[] memory strategies, uint256[] memory shares) = delegationManager.getDepositedShares(address(this));
 
-        IDelegationManager.QueuedWithdrawalParams[] memory params = new IDelegationManager.QueuedWithdrawalParams[](1);
-        params[0] = IDelegationManager.QueuedWithdrawalParams({
+        IDelegationManagerTypes.QueuedWithdrawalParams[] memory params = new IDelegationManager.QueuedWithdrawalParams[](1);
+        params[0] = IDelegationManagerTypes.QueuedWithdrawalParams({
             strategies: strategies,
-            shares: shares,
+            depositShares: shares,
             withdrawer: address(this)
         });
 
@@ -286,7 +282,6 @@ contract User is Test {
     /**
      * EIP1271 Signatures:
      */
-
     bytes4 internal constant EIP1271_MAGICVALUE = 0x1626ba7e;
 
     function isValidSignature(bytes32 digestHash, bytes memory) public view returns (bytes4) {
@@ -329,14 +324,14 @@ contract User is Test {
         emit log_named_string(string.concat(NAME, ".", s), quorums.toString());
     }
 
-    // Operator0.registerOperatorWithChurn 
+    // Operator0.registerOperatorWithChurn
     // - standardQuorums: 0x00010203...
     // - churnQuorums: 0x0405...
     // - churnTargets: Operator1, Operator2, ...
     function _logChurn(
-        string memory s, 
-        bytes memory churnQuorums, 
-        User[] memory churnTargets, 
+        string memory s,
+        bytes memory churnQuorums,
+        User[] memory churnTargets,
         bytes memory standardQuorums
     ) internal virtual {
         emit log(string.concat(NAME, ".", s));
@@ -368,7 +363,7 @@ contract User_AltMethods is User {
         _;
     }
 
-    constructor(string memory name, uint _privKey, IBLSApkRegistry.PubkeyRegistrationParams memory _pubkeyParams) 
+    constructor(string memory name, uint _privKey, IBLSApkRegistry.PubkeyRegistrationParams memory _pubkeyParams)
         User(name, _privKey, _pubkeyParams) {}
 
     /// @dev Rather than calling deregisterOperator, this pranks the ejector and calls
@@ -399,9 +394,9 @@ contract User_AltMethods is User {
                 operatorsPerQuorum[i][j] = blsApkRegistry.getOperatorFromPubkeyHash(operatorIds[j]);
             }
 
-            Sort.sort(operatorsPerQuorum[i]);
+            operatorsPerQuorum[i] = Sort.sortAddresses(operatorsPerQuorum[i]);
         }
 
-        registryCoordinator.updateOperatorsForQuorum(operatorsPerQuorum, allQuorums);        
+        registryCoordinator.updateOperatorsForQuorum(operatorsPerQuorum, allQuorums);
     }
 }

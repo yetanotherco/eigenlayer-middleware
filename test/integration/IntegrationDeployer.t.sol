@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import "forge-std/Test.sol";
 
@@ -14,17 +14,15 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 // Core contracts
 import "eigenlayer-contracts/src/contracts/core/DelegationManager.sol";
 import "eigenlayer-contracts/src/contracts/core/StrategyManager.sol";
-import "eigenlayer-contracts/src/contracts/core/Slasher.sol";
 import "eigenlayer-contracts/src/contracts/core/AVSDirectory.sol";
 import "eigenlayer-contracts/src/contracts/core/RewardsCoordinator.sol";
+import "eigenlayer-contracts/src/contracts/core/AllocationManager.sol";
 import "eigenlayer-contracts/src/contracts/strategies/StrategyBase.sol";
 import "eigenlayer-contracts/src/contracts/pods/EigenPodManager.sol";
 import "eigenlayer-contracts/src/contracts/pods/EigenPod.sol";
-import "eigenlayer-contracts/src/contracts/pods/DelayedWithdrawalRouter.sol";
 import "eigenlayer-contracts/src/contracts/permissions/PauserRegistry.sol";
+import "eigenlayer-contracts/src/contracts/permissions/PermissionController.sol";
 import "eigenlayer-contracts/src/test/mocks/ETHDepositMock.sol";
-// import "eigenlayer-contracts/src/test/integration/mocks/BeaconChainOracleMock.t.sol";
-import "test/integration/mocks/BeaconChainOracleMock.t.sol";
 
 // Middleware contracts
 import "src/RegistryCoordinator.sol";
@@ -54,12 +52,11 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
     EigenPodManager eigenPodManager;
     RewardsCoordinator rewardsCoordinator;
     PauserRegistry pauserRegistry;
-    Slasher slasher;
     IBeacon eigenPodBeacon;
     EigenPod pod;
-    DelayedWithdrawalRouter delayedWithdrawalRouter;
     ETHPOSDepositMock ethPOSDeposit;
-    BeaconChainOracleMock beaconChainOracle;
+    AllocationManager allocationManager;
+    PermissionController permissionController;
 
     // Base strategy implementation in case we want to create more strategies later
     StrategyBase baseStrategyImplementation;
@@ -92,16 +89,29 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
     address rewardsUpdater = address(uint160(uint256(keccak256("rewardsUpdater"))));
 
     // Constants/Defaults
-    uint64 constant MAX_RESTAKED_BALANCE_GWEI_PER_VALIDATOR = 32e9;
+    uint64 constant GENESIS_TIME_LOCAL = 1 hours * 12;
     uint256 constant MIN_BALANCE = 1e6;
     uint256 constant MAX_BALANCE = 5e6;
     uint256 constant MAX_STRATEGY_COUNT = 32; // From StakeRegistry.MAX_WEIGHING_FUNCTION_LENGTH
     uint96 constant DEFAULT_STRATEGY_MULTIPLIER = 1e18;
     // RewardsCoordinator
+    // Config Variables
+    /// @notice intervals(epochs) are 1 weeks
+    uint32 CALCULATION_INTERVAL_SECONDS = 7 days;
+
+    /// @notice Max duration is 5 epochs (2 weeks * 5 = 10 weeks in seconds)
     uint32 MAX_REWARDS_DURATION = 70 days;
+
+    /// @notice Lower bound start range is ~3 months into the past, multiple of CALCULATION_INTERVAL_SECONDS
     uint32 MAX_RETROACTIVE_LENGTH = 84 days;
+    /// @notice Upper bound start range is ~1 month into the future, multiple of CALCULATION_INTERVAL_SECONDS
     uint32 MAX_FUTURE_LENGTH = 28 days;
-    uint32 GENESIS_REWARDS_TIMESTAMP = 1_712_092_632;
+    /// @notice absolute min timestamp that a rewards can start at
+    uint32 GENESIS_REWARDS_TIMESTAMP = 1712188800;
+    /// @notice Equivalent to 100%, but in basis points.
+    uint16 internal constant ONE_HUNDRED_IN_BIPS = 10_000;
+
+    uint32 defaultOperatorSplitBips = 1000;
     /// @notice Delay in timestamp before a posted root can be claimed against
     uint32 activationDelay = 7 days;
     /// @notice intervals(epochs) are 2 weeks
@@ -121,7 +131,6 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
         // Deploy mocks
         EmptyContract emptyContract = new EmptyContract();
         ethPOSDeposit = new ETHPOSDepositMock();
-        beaconChainOracle = new BeaconChainOracleMock();
 
         /**
          * First, deploy upgradeable proxy contracts that **will point** to the implementations. Since the implementation contracts are
@@ -137,17 +146,7 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
                 new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), "")
             )
         );
-        slasher = Slasher(
-            address(
-                new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), "")
-            )
-        );
         eigenPodManager = EigenPodManager(
-            address(
-                new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), "")
-            )
-        );
-        delayedWithdrawalRouter = DelayedWithdrawalRouter(
             address(
                 new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), "")
             )
@@ -157,41 +156,61 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
                 new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), "")
             )
         );
-        // RewardsCoordinator = RewardsCoordinator(
-        //     address(new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), ""))
-        // );
+
+        allocationManager = AllocationManager(
+            address(
+                new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), "")
+            )
+        );
+
+        permissionController = PermissionController(address(new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), "")));
+
+        rewardsCoordinator = RewardsCoordinator(
+            address(new TransparentUpgradeableProxy(address(emptyContract), address(proxyAdmin), ""))
+        );
 
         // Deploy EigenPod Contracts
         pod = new EigenPod(
             ethPOSDeposit,
-            delayedWithdrawalRouter,
             eigenPodManager,
-            MAX_RESTAKED_BALANCE_GWEI_PER_VALIDATOR,
-            0
+            GENESIS_TIME_LOCAL
         );
 
         eigenPodBeacon = new UpgradeableBeacon(address(pod));
 
+        PermissionController permissionControllerImplementation = new PermissionController();
+
         // Second, deploy the *implementation* contracts, using the *proxy contracts* as inputs
         DelegationManager delegationImplementation =
-            new DelegationManager(strategyManager, slasher, eigenPodManager);
+            new DelegationManager(strategyManager, eigenPodManager, allocationManager, pauserRegistry, permissionController, 0);
         StrategyManager strategyManagerImplementation =
-            new StrategyManager(delegationManager, eigenPodManager, slasher);
-        Slasher slasherImplementation = new Slasher(strategyManager, delegationManager);
+            new StrategyManager(delegationManager, pauserRegistry);
         EigenPodManager eigenPodManagerImplementation = new EigenPodManager(
-            ethPOSDeposit, eigenPodBeacon, strategyManager, slasher, delegationManager
+            ethPOSDeposit, eigenPodBeacon, delegationManager, pauserRegistry
         );
-        DelayedWithdrawalRouter delayedWithdrawalRouterImplementation =
-            new DelayedWithdrawalRouter(eigenPodManager);
-        AVSDirectory avsDirectoryImplemntation = new AVSDirectory(delegationManager);
-        // RewardsCoordinator rewardsCoordinatorImplementation = new RewardsCoordinator(
-        //     delegationManager,
-        //     IStrategyManager(address(strategyManager)),
-        //     MAX_REWARDS_DURATION,
-        //     MAX_RETROACTIVE_LENGTH,
-        //     MAX_FUTURE_LENGTH,
-        //     GENESIS_REWARDS_TIMESTAMP
-        // );
+        console.log("HERE Impl");
+        AVSDirectory avsDirectoryImplementation = new AVSDirectory(delegationManager, pauserRegistry);
+
+        RewardsCoordinator rewardsCoordinatorImplementation = new RewardsCoordinator(
+            delegationManager,
+            IStrategyManager(address(strategyManager)),
+            allocationManager,
+            pauserRegistry,
+            permissionController,
+            CALCULATION_INTERVAL_SECONDS,
+            MAX_REWARDS_DURATION,
+            MAX_RETROACTIVE_LENGTH,
+            MAX_FUTURE_LENGTH,
+            GENESIS_REWARDS_TIMESTAMP
+        );
+
+        AllocationManager allocationManagerImplementation = new AllocationManager(
+            delegationManager,
+            pauserRegistry,
+            permissionController,
+            uint32(7 days), // DEALLOCATION_DELAY
+            uint32(1 days)  // ALLOCATION_CONFIGURATION_DELAY
+        );
 
         // Third, upgrade the proxy contracts to point to the implementations
         uint256 minWithdrawalDelayBlocks = 7 days / 12 seconds;
@@ -204,11 +223,7 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
             abi.encodeWithSelector(
                 DelegationManager.initialize.selector,
                 eigenLayerReputedMultisig, // initialOwner
-                pauserRegistry,
-                0, /* initialPausedStatus */
-                minWithdrawalDelayBlocks,
-                initializeStrategiesToSetDelayBlocks,
-                initializeWithdrawalDelayBlocks
+                0 /* initialPausedStatus */
             )
         );
         // StrategyManager
@@ -219,18 +234,6 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
                 StrategyManager.initialize.selector,
                 eigenLayerReputedMultisig, //initialOwner
                 eigenLayerReputedMultisig, //initial whitelister
-                pauserRegistry,
-                0 // initialPausedStatus
-            )
-        );
-        // Slasher
-        proxyAdmin.upgradeAndCall(
-            TransparentUpgradeableProxy(payable(address(slasher))),
-            address(slasherImplementation),
-            abi.encodeWithSelector(
-                Slasher.initialize.selector,
-                eigenLayerReputedMultisig,
-                pauserRegistry,
                 0 // initialPausedStatus
             )
         );
@@ -240,53 +243,52 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
             address(eigenPodManagerImplementation),
             abi.encodeWithSelector(
                 EigenPodManager.initialize.selector,
-                address(beaconChainOracle),
                 eigenLayerReputedMultisig, // initialOwner
-                pauserRegistry,
                 0 // initialPausedStatus
-            )
-        );
-        // Delayed Withdrawal Router
-        proxyAdmin.upgradeAndCall(
-            TransparentUpgradeableProxy(payable(address(delayedWithdrawalRouter))),
-            address(delayedWithdrawalRouterImplementation),
-            abi.encodeWithSelector(
-                DelayedWithdrawalRouter.initialize.selector,
-                eigenLayerReputedMultisig, // initialOwner
-                pauserRegistry,
-                0, // initialPausedStatus
-                minWithdrawalDelayBlocks
             )
         );
         // AVSDirectory
         proxyAdmin.upgradeAndCall(
             TransparentUpgradeableProxy(payable(address(avsDirectory))),
-            address(avsDirectoryImplemntation),
+            address(avsDirectoryImplementation),
             abi.encodeWithSelector(
                 AVSDirectory.initialize.selector,
                 eigenLayerReputedMultisig, // initialOwner
-                pauserRegistry,
+                // pauserRegistry,
                 0 // initialPausedStatus
             )
         );
-        // // RewardsCoordinator
-        // proxyAdmin.upgradeAndCall(
-        //     TransparentUpgradeableProxy(payable(address(rewardsCoordinator))),
-        //     address(rewardsCoordinatorImplementation),
-        //     abi.encodeWithSelector(
-        //         RewardsCoordinator.initialize.selector,
-        //         eigenLayerReputedMultisig, // initialOwner
-        //         pauserRegistry,
-        //         0, // initialPausedStatus
-        //         rewardsUpdater,
-        //         activationDelay,
-        //         calculationIntervalSeconds,
-        //         globalCommissionBips
-        //     )
-        // );
+
+        proxyAdmin.upgrade(
+            TransparentUpgradeableProxy(payable(address(permissionController))),
+            address(permissionControllerImplementation)
+        );
+
+        proxyAdmin.upgradeAndCall(
+            TransparentUpgradeableProxy(payable(address(rewardsCoordinator))),
+            address(rewardsCoordinatorImplementation),
+            abi.encodeWithSelector(
+                RewardsCoordinator.initialize.selector,
+                eigenLayerReputedMultisig, // initialOwner
+                0, // initialPausedStatus
+                rewardsUpdater,
+                activationDelay,
+                defaultOperatorSplitBips // defaultSplitBips
+            )
+        );
+
+        proxyAdmin.upgradeAndCall(
+            TransparentUpgradeableProxy(payable(address(allocationManager))),
+            address(allocationManagerImplementation),
+            abi.encodeWithSelector(
+                AllocationManager.initialize.selector,
+                eigenLayerReputedMultisig, // initialOwner
+                0 // initialPausedStatus
+            )
+        );
 
         // Deploy and whitelist strategies
-        baseStrategyImplementation = new StrategyBase(strategyManager);
+        baseStrategyImplementation = new StrategyBase(strategyManager, pauserRegistry);
         for (uint256 i = 0; i < MAX_STRATEGY_COUNT; i++) {
             string memory number = uint256(i).toString();
             string memory stratName = string.concat("StrategyToken", number);
@@ -330,7 +332,7 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
         cheats.stopPrank();
 
         StakeRegistry stakeRegistryImplementation = new StakeRegistry(
-            IRegistryCoordinator(registryCoordinator), IDelegationManager(delegationManager)
+            IRegistryCoordinator(registryCoordinator), IDelegationManager(delegationManager), IAVSDirectory(avsDirectory), IServiceManager(serviceManager)
         );
         BLSApkRegistry blsApkRegistryImplementation =
             new BLSApkRegistry(IRegistryCoordinator(registryCoordinator));
@@ -340,7 +342,8 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
             IAVSDirectory(avsDirectory),
             rewardsCoordinator,
             IRegistryCoordinator(registryCoordinator),
-            stakeRegistry
+            stakeRegistry,
+            allocationManager
         );
 
         proxyAdmin.upgrade(
@@ -365,11 +368,15 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
 
         serviceManager.initialize({
             initialOwner: registryCoordinatorOwner,
-            rewardsInitiator: address(msg.sender)
+            rewardsInitiator: address(msg.sender),
+            slasher: address(msg.sender)
         });
 
+        StakeType[] memory quorumStakeTypes = new StakeType[](0);
+        uint32[] memory slashableStakeQuorumLookAheadPeriods = new uint32[](0);
+
         RegistryCoordinator registryCoordinatorImplementation =
-            new RegistryCoordinator(serviceManager, stakeRegistry, blsApkRegistry, indexRegistry);
+            new RegistryCoordinator(serviceManager, stakeRegistry, blsApkRegistry, indexRegistry, avsDirectory, pauserRegistry);
         proxyAdmin.upgradeAndCall(
             TransparentUpgradeableProxy(payable(address(registryCoordinator))),
             address(registryCoordinatorImplementation),
@@ -378,11 +385,12 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
                 registryCoordinatorOwner,
                 churnApprover,
                 ejector,
-                pauserRegistry,
                 0, /*initialPausedStatus*/
                 new IRegistryCoordinator.OperatorSetParam[](0),
                 new uint96[](0),
-                new IStakeRegistry.StrategyParams[][](0)
+                new IStakeRegistry.StrategyParams[][](0),
+                quorumStakeTypes,
+                slashableStakeQuorumLookAheadPeriods
             )
         );
 
@@ -417,7 +425,7 @@ abstract contract IntegrationDeployer is Test, IUserDeployer {
         strategies[0] = strategy;
         cheats.prank(strategyManager.strategyWhitelister());
         strategyManager.addStrategiesToDepositWhitelist(
-            strategies, thirdPartyTransfersForbiddenValues
+            strategies
         );
 
         // Add to allStrats

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import {EjectionManager} from "../../src/EjectionManager.sol";
 import {IEjectionManager} from "../../src/interfaces/IEjectionManager.sol";
@@ -366,7 +366,7 @@ contract EjectionManagerUnitTests is MockAVSDeployer {
 
     function test_Revert_NotPermissioned() public {
         bytes32[][] memory operatorIds;
-        cheats.expectRevert("Ejector: Only owner or ejector can eject");
+        cheats.expectRevert("EjectionManager.ejectOperators: Only owner or ejector can eject");
         ejectionManager.ejectOperators(operatorIds);
 
         EjectionManager.QuorumEjectionParams memory _quorumEjectionParams;
@@ -375,6 +375,18 @@ contract EjectionManagerUnitTests is MockAVSDeployer {
 
         cheats.expectRevert("Ownable: caller is not the owner");
         ejectionManager.setEjector(address(0), true);
+    }
+
+    function test_Overflow_Regression() public {
+        cheats.prank(registryCoordinatorOwner);
+        ejectionManager.setQuorumEjectionParams(0, IEjectionManager.QuorumEjectionParams({
+            rateLimitWindow: 7 days,
+            ejectableStakePercent: 9999
+        }));
+
+        stakeRegistry.recordTotalStakeUpdate(1, 2_000_000_000 * 1 ether);
+
+        ejectionManager.amountEjectableForQuorum(1);
     }
 
     function _registerOperaters(uint8 numOperators, uint96 stake) internal {

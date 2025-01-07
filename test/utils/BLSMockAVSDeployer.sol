@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import {BLSSignatureChecker} from "../../src/BLSSignatureChecker.sol";
 import {MockAVSDeployer} from "../utils/MockAVSDeployer.sol";
@@ -130,8 +130,8 @@ contract BLSMockAVSDeployer is MockAVSDeployer {
 
         OperatorStateRetriever.CheckSignaturesIndices memory checkSignaturesIndices = operatorStateRetriever.getCheckSignaturesIndices(
             registryCoordinator,
-            referenceBlockNumber, 
-            quorumNumbers, 
+            referenceBlockNumber,
+            quorumNumbers,
             nonSignerOperatorIds
         );
 

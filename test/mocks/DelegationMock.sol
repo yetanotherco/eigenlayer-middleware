@@ -1,203 +1,272 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {console2 as console} from "forge-std/Test.sol";
 
 import {IDelegationManager} from "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
 import {IStrategyManager} from "eigenlayer-contracts/src/contracts/interfaces/IStrategyManager.sol";
+import {StrategyManager} from "eigenlayer-contracts/src/contracts/core/StrategyManager.sol";
 import {IStrategy} from "eigenlayer-contracts/src/contracts/interfaces/IStrategy.sol";
+import {IPauserRegistry} from "eigenlayer-contracts/src/contracts/interfaces/IPauserRegistry.sol";
 import {ISignatureUtils} from "eigenlayer-contracts/src/contracts/interfaces/ISignatureUtils.sol";
+import {SlashingLib} from "eigenlayer-contracts/src/contracts/libraries/SlashingLib.sol";
 
-contract DelegationMock is IDelegationManager {
-    mapping(address => bool) public isOperator;
-    mapping(address => mapping(IStrategy => uint256)) public operatorShares;
+contract DelegationIntermediate is IDelegationManager {
+  function initialize(
+    address initialOwner,
+    uint256 initialPausedStatus
+  ) external virtual {}
 
-    function setIsOperator(address operator, bool _isOperatorReturnValue) external {
-        isOperator[operator] = _isOperatorReturnValue;
-    }
+  function registerAsOperator(
+    OperatorDetails calldata registeringOperatorDetails,
+    uint32 allocationDelay,
+    string calldata metadataURI
+  ) external virtual {}
 
-    /// @notice returns the total number of shares in `strategy` that are delegated to `operator`.
-    function setOperatorShares(address operator, IStrategy strategy, uint256 shares) external {
-        operatorShares[operator][strategy] = shares;
-    }
+  function modifyOperatorDetails(
+    OperatorDetails calldata newOperatorDetails
+  ) external virtual {}
 
-    mapping (address => address) public delegatedTo;
+  function updateOperatorMetadataURI(
+    string calldata metadataURI
+  ) external virtual {}
 
-    function registerAsOperator(OperatorDetails calldata /*registeringOperatorDetails*/, string calldata /*metadataURI*/) external pure {}
-    
-    function updateOperatorMetadataURI(string calldata /*metadataURI*/) external pure {}
+  function delegateTo(
+    address operator,
+    SignatureWithExpiry memory approverSignatureAndExpiry,
+    bytes32 approverSalt
+  ) external virtual {}
 
-    function updateAVSMetadataURI(string calldata /*metadataURI*/) external pure {}
+  function undelegate(
+    address staker
+  ) external virtual returns (bytes32[] memory withdrawalRoots) {}
 
-    function delegateTo(address operator, SignatureWithExpiry memory /*approverSignatureAndExpiry*/, bytes32 /*approverSalt*/) external {
-        delegatedTo[msg.sender] = operator;
-    }
+  function queueWithdrawals(
+    QueuedWithdrawalParams[] calldata params
+  ) external virtual returns (bytes32[] memory) {}
 
-    function modifyOperatorDetails(OperatorDetails calldata /*newOperatorDetails*/) external pure {}
+  function completeQueuedWithdrawals(
+    IERC20[][] calldata tokens,
+    bool[] calldata receiveAsTokens,
+    uint256 numToComplete
+  ) external virtual {}
 
-    function delegateToBySignature(
-        address /*staker*/,
-        address /*operator*/,
-        SignatureWithExpiry memory /*stakerSignatureAndExpiry*/,
-        SignatureWithExpiry memory /*approverSignatureAndExpiry*/,
-        bytes32 /*approverSalt*/
-    ) external pure {}
+  function completeQueuedWithdrawal(
+    Withdrawal calldata withdrawal,
+    IERC20[] calldata tokens,
+    bool receiveAsTokens
+  ) external virtual {}
 
-    function undelegate(address staker) external returns (bytes32[] memory withdrawalRoot) {
-        delegatedTo[staker] = address(0);
-        return withdrawalRoot;
-    }
+  function completeQueuedWithdrawals(
+    Withdrawal[] calldata withdrawals,
+    IERC20[][] calldata tokens,
+    bool[] calldata receiveAsTokens
+  ) external virtual {}
 
-    function increaseDelegatedShares(address /*staker*/, IStrategy /*strategy*/, uint256 /*shares*/) external pure {}
+  function increaseDelegatedShares(
+    address staker,
+    IStrategy strategy,
+    uint256 existingDepositShares,
+    uint256 addedShares
+  ) external virtual {}
+
+  function decreaseBeaconChainScalingFactor(
+    address staker,
+    uint256 existingShares,
+    uint64 proportionOfOldBalance
+  ) external virtual {}
+
+  function burnOperatorShares(
+    address operator,
+    IStrategy strategy,
+    uint64 prevMaxMagnitude,
+    uint64 newMaxMagnitude
+  ) external virtual {}
+
+  function completeQueuedWithdrawal(
+    Withdrawal calldata withdrawal,
+    IERC20[] calldata tokens,
+    uint256 middlewareTimesIndex,
+    bool receiveAsTokens
+  ) external virtual {}
+
+  function completeQueuedWithdrawals(
+    Withdrawal[] calldata withdrawals,
+    IERC20[][] calldata tokens,
+    uint256[] calldata middlewareTimesIndexes,
+    bool[] calldata receiveAsTokens
+  ) external virtual {}
+
+  function delegatedTo(
+    address staker
+  ) external view virtual returns (address) {}
+
+  function delegationApproverSaltIsSpent(
+    address _delegationApprover,
+    bytes32 salt
+  ) external view virtual returns (bool) {}
+
+  function cumulativeWithdrawalsQueued(
+    address staker
+  ) external view virtual returns (uint256) {}
+
+  function isDelegated(address staker) external view virtual returns (bool) {}
+
+  function isOperator(address operator) external view virtual returns (bool) {}
+
+  function operatorDetails(
+    address operator
+  ) external view virtual returns (OperatorDetails memory) {}
+
+  function delegationApprover(
+    address operator
+  ) external view virtual returns (address) {}
+
+  function getOperatorShares(
+    address operator,
+    IStrategy[] memory strategies
+  ) external view virtual returns (uint256[] memory) {}
+
+  function getOperatorsShares(
+    address[] memory operators,
+    IStrategy[] memory strategies
+  ) external view virtual returns (uint256[][] memory) {}
+
+  function getSlashableSharesInQueue(
+    address operator,
+    IStrategy strategy
+  ) external view virtual returns (uint256) {}
+
+  function getWithdrawableShares(
+    address staker,
+    IStrategy[] memory strategies
+  )
+    external
+    view
+    virtual
+    override
+    returns (
+      uint256[] memory withdrawableShares,
+      uint256[] memory depositShares
+    )
+  {}
+
+  function getDepositedShares(
+    address staker
+  ) external view virtual returns (IStrategy[] memory, uint256[] memory) {}
+
+  function depositScalingFactor(
+    address staker,
+    IStrategy strategy
+  ) external view virtual returns (uint256) {}
+
+  function getBeaconChainSlashingFactor(
+    address staker
+  ) external view virtual returns (uint64) {}
+
+  function getQueuedWithdrawals(
+    address staker
+  )
+    external
+    view
+    virtual
+    override
+    returns (Withdrawal[] memory withdrawals, uint256[][] memory shares)
+  {}
+
+  function calculateWithdrawalRoot(
+    Withdrawal memory withdrawal
+  ) external pure virtual returns (bytes32) {}
+
+  function calculateDelegationApprovalDigestHash(
+    address staker,
+    address operator,
+    address _delegationApprover,
+    bytes32 approverSalt,
+    uint256 expiry
+  ) external view virtual returns (bytes32) {}
+
+  function beaconChainETHStrategy()
+    external
+    view
+    virtual
+    override
+    returns (IStrategy)
+  {}
+
+  function DELEGATION_APPROVAL_TYPEHASH()
+    external
+    view
+    virtual
+    override
+    returns (bytes32)
+  {}
+
+  function registerAsOperator(
+    address initDelegationApprover,
+    uint32 allocationDelay,
+    string calldata metadataURI
+  ) external virtual {}
+
+  function modifyOperatorDetails(
+    address operator,
+    address newDelegationApprover
+  ) external virtual {}
+
+  function updateOperatorMetadataURI(
+    address operator,
+    string calldata metadataURI
+  ) external virtual {}
+
+  function redelegate(
+    address newOperator,
+    SignatureWithExpiry memory newOperatorApproverSig,
+    bytes32 approverSalt
+  ) external virtual returns (bytes32[] memory withdrawalRoots) {}
+
+  function decreaseDelegatedShares(
+    address staker,
+    uint256 curDepositShares,
+    uint64 prevBeaconChainSlashingFactor,
+    uint256 wadSlashed
+  ) external virtual {}
 
     function decreaseDelegatedShares(
-        address /*staker*/,
-        IStrategy /*strategy*/,
-        uint256 /*shares*/
-    ) external pure {}
+        address staker,
+        uint256 curDepositShares,
+        uint64 beaconChainSlashingFactorDecrease
+    ) external virtual {}
 
-    function operatorDetails(address operator) external pure returns (OperatorDetails memory) {
-        OperatorDetails memory returnValue = OperatorDetails({
-           __deprecated_earningsReceiver: operator,
-            delegationApprover: operator,
-            stakerOptOutWindowBlocks: 0
-        });
-        return returnValue;
+    function minWithdrawalDelayBlocks() external view virtual override returns (uint32) {}
+}
+
+contract DelegationMock is DelegationIntermediate {
+    mapping(address => bool) internal _isOperator;
+    mapping(address => mapping(IStrategy => uint256)) internal _weightOf;
+    function setOperatorShares(address operator, IStrategy strategy, uint256 actualWeight) external {
+        _weightOf[operator][strategy] = actualWeight;
     }
 
-    function beaconChainETHStrategy() external pure returns (IStrategy) {}
-
-    function earningsReceiver(address operator) external pure returns (address) {
-        return operator;
+    function setIsOperator(address operator, bool isOperator) external {
+        _isOperator[operator] = isOperator;
     }
 
-    function delegationApprover(address operator) external pure returns (address) {
-        return operator;
-    }
-
-    function stakerOptOutWindowBlocks(address /*operator*/) external pure returns (uint256) {
-        return 0;
-    }
-
-    function minWithdrawalDelayBlocks() external view returns (uint256) {
-        return 50400;
-    }
-
-    /**
-     * @notice Minimum delay enforced by this contract per Strategy for completing queued withdrawals. Measured in blocks, and adjustable by this contract's owner,
-     * up to a maximum of `MAX_WITHDRAWAL_DELAY_BLOCKS`. Minimum value is 0 (i.e. no delay enforced).
-     */
-    function strategyWithdrawalDelayBlocks(IStrategy /*strategy*/) external view returns (uint256) {
-        return 0;
+    function isOperator(address operator) external view override returns (bool) {
+        return _isOperator[operator];
     }
 
     function getOperatorShares(
         address operator,
-        IStrategy[] memory strategies
-    ) external view returns (uint256[] memory) {
+        IStrategy[] calldata strategies
+    ) external view override returns (uint256[] memory) {
         uint256[] memory shares = new uint256[](strategies.length);
-        for (uint256 i = 0; i < strategies.length; ++i) {
-            shares[i] = operatorShares[operator][strategies[i]];
+        for (uint256 i = 0; i < strategies.length; i++) {
+            shares[i] = _weightOf[operator][strategies[i]];
         }
         return shares;
     }
-
-    function getWithdrawalDelay(IStrategy[] calldata /*strategies*/) public view returns (uint256) {
-        return 0;
-    }
-
-    function isDelegated(address staker) external view returns (bool) {
-        return (delegatedTo[staker] != address(0));
-    }
-
-    function isNotDelegated(address /*staker*/) external pure returns (bool) {}
-
-    // function isOperator(address /*operator*/) external pure returns (bool) {}
-
-    function stakerNonce(address /*staker*/) external pure returns (uint256) {}
-
-    function delegationApproverSaltIsSpent(address /*delegationApprover*/, bytes32 /*salt*/) external pure returns (bool) {}
-
-    function calculateCurrentStakerDelegationDigestHash(address /*staker*/, address /*operator*/, uint256 /*expiry*/) external view returns (bytes32) {}
-
-    function calculateStakerDelegationDigestHash(address /*staker*/, uint256 /*stakerNonce*/, address /*operator*/, uint256 /*expiry*/) external view returns (bytes32) {}
-
-    function calculateDelegationApprovalDigestHash(
-        address /*staker*/,
-        address /*operator*/,
-        address /*_delegationApprover*/,
-        bytes32 /*approverSalt*/,
-        uint256 /*expiry*/
-    ) external view returns (bytes32) {}
-
-    function calculateStakerDigestHash(address /*staker*/, address /*operator*/, uint256 /*expiry*/)
-        external pure returns (bytes32 stakerDigestHash) {}
-
-    function calculateApproverDigestHash(address /*staker*/, address /*operator*/, uint256 /*expiry*/)
-        external pure returns (bytes32 approverDigestHash) {}
-
-    function calculateOperatorAVSRegistrationDigestHash(address /*operator*/, address /*avs*/, bytes32 /*salt*/, uint256 /*expiry*/)
-        external pure returns (bytes32 digestHash) {}
-
-    function DOMAIN_TYPEHASH() external view returns (bytes32) {}
-
-    function STAKER_DELEGATION_TYPEHASH() external view returns (bytes32) {}
-
-    function DELEGATION_APPROVAL_TYPEHASH() external view returns (bytes32) {}
-
-    function domainSeparator() external view returns (bytes32) {}
-
-    function cumulativeWithdrawalsQueued(address staker) external view returns (uint256) {}
-
-    function calculateWithdrawalRoot(Withdrawal memory withdrawal) external pure returns (bytes32) {}
-
-    function operatorSaltIsSpent(address avs, bytes32 salt) external view returns (bool) {}
-
-   function queueWithdrawals(
-        QueuedWithdrawalParams[] calldata queuedWithdrawalParams
-    ) external returns (bytes32[] memory) {}
-
-    function completeQueuedWithdrawal(
-        Withdrawal calldata withdrawal,
-        IERC20[] calldata tokens,
-        uint256 middlewareTimesIndex,
-        bool receiveAsTokens
-    ) external {}
-
-    function completeQueuedWithdrawals(
-        Withdrawal[] calldata withdrawals,
-        IERC20[][] calldata tokens,
-        uint256[] calldata middlewareTimesIndexes,
-        bool[] calldata receiveAsTokens
-    ) external {}
-
-    // onlyDelegationManager functions in StrategyManager
-    function addShares(
-        IStrategyManager strategyManager,
-        address staker,
-        IERC20 token,
-        IStrategy strategy,
-        uint256 shares
-    ) external {
-        strategyManager.addShares(staker, token, strategy, shares);
-    }
-
-    function removeShares(
-        IStrategyManager strategyManager,
-        address staker,
-        IStrategy strategy,
-        uint256 shares
-    ) external {
-        strategyManager.removeShares(staker, strategy, shares);
-    }
-
-    function withdrawSharesAsTokens(
-        IStrategyManager strategyManager,
-        address recipient,
-        IStrategy strategy,
-        uint256 shares,
-        IERC20 token
-    ) external {
-        strategyManager.withdrawSharesAsTokens(recipient, strategy, shares, token);
+    function minWithdrawalDelayBlocks() external view override returns (uint32){
+        return 10000;
     }
 }

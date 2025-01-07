@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import {ServiceManagerRouter} from "../../src/ServiceManagerRouter.sol";
 import "../utils/MockAVSDeployer.sol";
@@ -19,7 +19,8 @@ contract ServiceManagerRouter_UnitTests is MockAVSDeployer {
             avsDirectory,
             rewardsCoordinatorImplementation,
             registryCoordinatorImplementation,
-            stakeRegistryImplementation
+            stakeRegistryImplementation,
+            allocationManagerImplementation
         );
 
         _registerOperatorWithCoordinator(defaultOperator, MAX_QUORUM_BITMAP, defaultPubKey);

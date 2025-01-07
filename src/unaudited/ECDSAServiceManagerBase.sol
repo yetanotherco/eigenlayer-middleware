@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import {OwnableUpgradeable} from "@openzeppelin-upgrades/contracts/access/OwnableUpgradeable.sol";
-
 import {ISignatureUtils} from "eigenlayer-contracts/src/contracts/interfaces/ISignatureUtils.sol";
 import {IAVSDirectory} from "eigenlayer-contracts/src/contracts/interfaces/IAVSDirectory.sol";
-
 import {IServiceManager} from "../interfaces/IServiceManager.sol";
 import {IServiceManagerUI} from "../interfaces/IServiceManagerUI.sol";
 import {IDelegationManager} from "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
@@ -14,6 +12,10 @@ import {IStakeRegistry} from "../interfaces/IStakeRegistry.sol";
 import {IRewardsCoordinator} from "eigenlayer-contracts/src/contracts/interfaces/IRewardsCoordinator.sol";
 import {Quorum} from "../interfaces/IECDSAStakeRegistryEventsAndErrors.sol";
 import {ECDSAStakeRegistry} from "../unaudited/ECDSAStakeRegistry.sol";
+import {IAVSRegistrar} from "eigenlayer-contracts/src/contracts/interfaces/IAVSRegistrar.sol";
+import {IAllocationManager} from "eigenlayer-contracts/src/contracts/interfaces/IAllocationManager.sol";
+
+
 
 abstract contract ECDSAServiceManagerBase is
     IServiceManager,
@@ -25,11 +27,18 @@ abstract contract ECDSAServiceManagerBase is
     /// @notice Address of the AVS directory contract, which manages AVS-related data for registered operators.
     address public immutable avsDirectory;
 
+    /// @notice Address of the AllocationManager contract
+    address public immutable allocationManager;
+
     /// @notice Address of the rewards coordinator contract, which handles rewards distributions.
     address internal immutable rewardsCoordinator;
 
     /// @notice Address of the delegation manager contract, which manages staker delegations to operators.
     address internal immutable delegationManager;
+
+    /// @notice Address of the rewards initiator, which is allowed to create AVS rewards submissions.
+    address public rewardsInitiator;
+
     /**
      * @dev Ensures that the function is only callable by the `stakeRegistry` contract.
      * This is used to restrict certain registration and deregistration functionality to the `stakeRegistry`
@@ -43,6 +52,21 @@ abstract contract ECDSAServiceManagerBase is
     }
 
     /**
+     * @dev Ensures that the function is only callable by the `rewardsInitiator`.
+     */
+    modifier onlyRewardsInitiator() {
+        _checkRewardsInitiator();
+        _;
+    }
+
+    function _checkRewardsInitiator() internal view {
+        require(
+            msg.sender == rewardsInitiator,
+            "ECDSAServiceManagerBase.onlyRewardsInitiator: caller is not the rewards initiator"
+        );
+    }
+
+    /**
      * @dev Constructor for ECDSAServiceManagerBase, initializing immutable contract addresses and disabling initializers.
      * @param _avsDirectory The address of the AVS directory contract, managing AVS-related data for registered operators.
      * @param _stakeRegistry The address of the stake registry contract, managing registration and stake recording.
@@ -53,23 +77,28 @@ abstract contract ECDSAServiceManagerBase is
         address _avsDirectory,
         address _stakeRegistry,
         address _rewardsCoordinator,
-        address _delegationManager
+        address _delegationManager,
+        address _allocationManager
     ) {
         avsDirectory = _avsDirectory;
         stakeRegistry = _stakeRegistry;
         rewardsCoordinator = _rewardsCoordinator;
         delegationManager = _delegationManager;
+        allocationManager = _allocationManager;
         _disableInitializers();
     }
 
     /**
      * @dev Initializes the base service manager by transferring ownership to the initial owner.
      * @param initialOwner The address to which the ownership of the contract will be transferred.
+     * @param _rewardsInitiator The address which is allowed to create AVS rewards submissions.
      */
     function __ServiceManagerBase_init(
-        address initialOwner
+        address initialOwner,
+        address _rewardsInitiator
     ) internal virtual onlyInitializing {
         _transferOwnership(initialOwner);
+        _setRewardsInitiator(_rewardsInitiator);
     }
 
     /// @inheritdoc IServiceManagerUI
@@ -82,7 +111,7 @@ abstract contract ECDSAServiceManagerBase is
     /// @inheritdoc IServiceManager
     function createAVSRewardsSubmission(
         IRewardsCoordinator.RewardsSubmission[] calldata rewardsSubmissions
-    ) external virtual onlyOwner {
+    ) external virtual onlyRewardsInitiator {
         _createAVSRewardsSubmission(rewardsSubmissions);
     }
 
@@ -168,9 +197,13 @@ abstract contract ECDSAServiceManagerBase is
                 address(this),
                 rewardsSubmissions[i].amount
             );
+            uint256 allowance = rewardsSubmissions[i].token.allowance(
+                address(this),
+                rewardsCoordinator
+            );
             rewardsSubmissions[i].token.approve(
                 rewardsCoordinator,
-                rewardsSubmissions[i].amount
+                rewardsSubmissions[i].amount + allowance
             );
         }
 
@@ -197,6 +230,15 @@ abstract contract ECDSAServiceManagerBase is
     }
 
     /**
+     * @notice Sets the AVS registrar address in the AllocationManager
+     * @param registrar The new AVS registrar address
+     * @dev Only callable by the registry coordinator
+     */
+    function setAVSRegistrar(IAVSRegistrar registrar) external onlyOwner {
+        IAllocationManager(allocationManager).setAVSRegistrar(address(this), registrar);
+    }
+
+    /**
      * @notice Retrieves the addresses of strategies where the operator has restaked.
      * @dev This function fetches the quorum details from the ECDSAStakeRegistry, retrieves the operator's shares for each strategy,
      * and filters out strategies with non-zero shares indicating active restaking by the operator.
@@ -212,10 +254,11 @@ abstract contract ECDSAServiceManagerBase is
         for (uint256 i; i < count; i++) {
             strategies[i] = quorum.strategies[i].strategy;
         }
-        uint256[] memory shares = IDelegationManager(delegationManager)
-            .getOperatorShares(_operator, strategies);
+        uint256[] memory shares;
+        // TODO: Fix
+        //  = IDelegationManager(delegationManager)
+        //     .getOperatorShares(_operator, strategies);
 
-        address[] memory activeStrategies = new address[](count);
         uint256 activeCount;
         for (uint256 i; i < count; i++) {
             if (shares[i] > 0) {
@@ -225,16 +268,34 @@ abstract contract ECDSAServiceManagerBase is
 
         // Resize the array to fit only the active strategies
         address[] memory restakedStrategies = new address[](activeCount);
+        uint256 index;
         for (uint256 j = 0; j < count; j++) {
             if (shares[j] > 0) {
-                restakedStrategies[j] = activeStrategies[j];
+                restakedStrategies[index] = address(strategies[j]);
+                index++;
             }
         }
 
         return restakedStrategies;
     }
 
+    /**
+     * @notice Sets the rewards initiator address.
+     * @param newRewardsInitiator The new rewards initiator address.
+     * @dev Only callable by the owner.
+     */
+    function setRewardsInitiator(
+        address newRewardsInitiator
+    ) external onlyOwner {
+        _setRewardsInitiator(newRewardsInitiator);
+    }
+
+    function _setRewardsInitiator(address newRewardsInitiator) internal {
+        emit RewardsInitiatorUpdated(rewardsInitiator, newRewardsInitiator);
+        rewardsInitiator = newRewardsInitiator;
+    }
+
     // storage gap for upgradeability
     // slither-disable-next-line shadowing-state
-    uint256[50] private __GAP;
+    uint256[49] private __GAP;
 }

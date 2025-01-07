@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import {IDelegationManager} from "eigenlayer-contracts/src/contracts/interfaces/IDelegationManager.sol";
 import {IStrategy} from "eigenlayer-contracts/src/contracts/interfaces/IStrategy.sol";
 
 import {IRegistry} from "./IRegistry.sol";
 
+enum StakeType {
+    TOTAL_DELEGATED,
+    TOTAL_SLASHABLE
+}
+
 /**
  * @title Interface for a `Registry` that keeps track of stakes of operators for up to 256 quorums.
  * @author Layr Labs, Inc.
  */
 interface IStakeRegistry is IRegistry {
-    
     // DATA STRUCTURES
 
     /// @notice struct used to store the stakes of an individual operator or the sum of all operators' stakes, for storage
@@ -42,6 +46,12 @@ interface IStakeRegistry is IRegistry {
         uint8 quorumNumber,
         uint96 stake
     );
+
+    /// @notice emitted when the look ahead time for checking operator shares is updated
+    event LookAheadPeriodChanged(uint32 oldLookAheadDays, uint32 newLookAheadDays);
+
+    /// @notice emitted when the stake type is updated
+    event StakeTypeSet(StakeType newStakeType);
     /// @notice emitted when the minimum stake for a quorum is updated
     event MinimumStakeForQuorumUpdated(uint8 indexed quorumNumber, uint96 minimumStake);
     /// @notice emitted when a new quorum is created
@@ -67,8 +77,8 @@ interface IStakeRegistry is IRegistry {
      *         4) the operator is not already registered
      */
     function registerOperator(
-        address operator, 
-        bytes32 operatorId, 
+        address operator,
+        bytes32 operatorId,
         bytes memory quorumNumbers
     ) external returns (uint96[] memory, uint96[] memory);
 
@@ -89,7 +99,20 @@ interface IStakeRegistry is IRegistry {
     /**
      * @notice Initialize a new quorum created by the registry coordinator by setting strategies, weights, and minimum stake
      */
-    function initializeQuorum(uint8 quorumNumber, uint96 minimumStake, StrategyParams[] memory strategyParams) external;
+    /// @notice Initialize a new quorum and push its first history update
+    function initializeDelegatedStakeQuorum(
+        uint8 quorumNumber,
+        uint96 minimumStake,
+        StrategyParams[] memory _strategyParams
+    ) external;
+
+    /// @notice Initialize a new quorum and push its first history update
+    function initializeSlashableStakeQuorum(
+        uint8 quorumNumber,
+        uint96 minimumStake,
+        uint32 lookAheadPeriod,
+        StrategyParams[] memory _strategyParams
+    ) external;
 
     /// @notice Adds new strategies and the associated multipliers to the @param quorumNumber.
     function addStrategies(
@@ -187,7 +210,7 @@ interface IStakeRegistry is IRegistry {
 
     /**
      * @notice Returns the stake weight corresponding to `operatorId` for quorum `quorumNumber`, at the
-     * `index`-th entry in the `operatorIdToStakeHistory[operatorId][quorumNumber]` array if the entry 
+     * `index`-th entry in the `operatorIdToStakeHistory[operatorId][quorumNumber]` array if the entry
      * corresponds to the operator's stake at `blockNumber`. Reverts otherwise.
      * @param quorumNumber The quorum number to get the stake for.
      * @param operatorId The id of the operator of interest.
@@ -202,8 +225,8 @@ interface IStakeRegistry is IRegistry {
         returns (uint96);
 
     /**
-     * @notice Returns the total stake weight for quorum `quorumNumber`, at the `index`-th entry in the 
-     * `totalStakeHistory[quorumNumber]` array if the entry corresponds to the total stake at `blockNumber`. 
+     * @notice Returns the total stake weight for quorum `quorumNumber`, at the `index`-th entry in the
+     * `totalStakeHistory[quorumNumber]` array if the entry corresponds to the total stake at `blockNumber`.
      * Reverts otherwise.
      * @param quorumNumber The quorum number to get the stake for.
      * @param index Array index for lookup, within the dynamic array `totalStakeHistory[quorumNumber]`.
@@ -241,8 +264,8 @@ interface IStakeRegistry is IRegistry {
      * and should be deregistered.
      */
     function updateOperatorStake(
-        address operator, 
-        bytes32 operatorId, 
+        address operator,
+        bytes32 operatorId,
         bytes calldata quorumNumbers
     ) external returns (uint192);
 }

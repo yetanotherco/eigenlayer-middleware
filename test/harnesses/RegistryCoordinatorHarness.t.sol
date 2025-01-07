@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
 import "../../src/RegistryCoordinator.sol";
 
@@ -11,8 +11,10 @@ contract RegistryCoordinatorHarness is RegistryCoordinator, Test {
         IServiceManager _serviceManager,
         IStakeRegistry _stakeRegistry,
         IBLSApkRegistry _blsApkRegistry,
-        IIndexRegistry _indexRegistry
-    ) RegistryCoordinator(_serviceManager, _stakeRegistry, _blsApkRegistry, _indexRegistry) {
+        IIndexRegistry _indexRegistry,
+        IAVSDirectory _avsDirectory,
+        IPauserRegistry _pauserRegistry
+    ) RegistryCoordinator(_serviceManager, _stakeRegistry, _blsApkRegistry, _indexRegistry, _avsDirectory, _pauserRegistry) {
         _transferOwnership(msg.sender);
     }
 
@@ -26,7 +28,7 @@ contract RegistryCoordinatorHarness is RegistryCoordinator, Test {
 
     // @notice exposes the internal `_registerOperator` function, overriding all access controls
     function _registerOperatorExternal(
-        address operator, 
+        address operator,
         bytes32 operatorId,
         bytes calldata quorumNumbers,
         string memory socket,
@@ -37,7 +39,7 @@ contract RegistryCoordinatorHarness is RegistryCoordinator, Test {
 
     // @notice exposes the internal `_deregisterOperator` function, overriding all access controls
     function _deregisterOperatorExternal(
-        address operator, 
+        address operator,
         bytes calldata quorumNumbers
     ) external {
         _deregisterOperator(operator, quorumNumbers);

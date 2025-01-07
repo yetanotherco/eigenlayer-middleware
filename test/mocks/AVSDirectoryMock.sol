@@ -1,52 +1,174 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.27;
 
-import {IAVSDirectory, ISignatureUtils} from "eigenlayer-contracts/src/contracts/interfaces/IAVSDirectory.sol";
+import {IAVSDirectory } from "eigenlayer-contracts/src/contracts/interfaces/IAVSDirectory.sol";
+import {OperatorSet} from "eigenlayer-contracts/src/contracts/interfaces/IAllocationManager.sol";
+import {ISignatureUtils} from "eigenlayer-contracts/src/contracts/interfaces/ISignatureUtils.sol";
+import {IStrategy} from "eigenlayer-contracts/src/contracts/interfaces/IStrategy.sol";
+import {IPauserRegistry} from "eigenlayer-contracts/src/contracts/interfaces/IPauserRegistry.sol";
 
 contract AVSDirectoryMock is IAVSDirectory {
-    /**
-     * @notice Called by an avs to register an operator with the avs.
-     * @param operator The address of the operator to register.
-     * @param operatorSignature The signature, salt, and expiry of the operator's signature.
-     */
-    function registerOperatorToAVS(
-        address operator,
-        ISignatureUtils.SignatureWithSaltAndExpiry memory operatorSignature
-    ) external {}
+  function initialize(
+    address initialOwner,
+    uint256 initialPausedStatus
+  ) external {}
 
-    /**
-     * @notice Called by an avs to deregister an operator with the avs.
-     * @param operator The address of the operator to deregister.
-     */
-    function deregisterOperatorFromAVS(address operator) external {}
+  function createOperatorSets(
+    uint32[] calldata operatorSetIds
+  ) external {}
 
-    /**
-     * @notice Called by an AVS to emit an `AVSMetadataURIUpdated` event indicating the information has updated.
-     * @param metadataURI The URI for metadata associated with an AVS
-     * @dev Note that the `metadataURI` is *never stored * and is only emitted in the `AVSMetadataURIUpdated` event
-     */
-    function updateAVSMetadataURI(string calldata metadataURI) external {}
+  function becomeOperatorSetAVS() external {}
 
-    /**
-     * @notice Returns whether or not the salt has already been used by the operator.
-     * @dev Salts is used in the `registerOperatorToAVS` function.
-     */
-    function operatorSaltIsSpent(address operator, bytes32 salt) external view returns (bool) {}
+  function migrateOperatorsToOperatorSets(
+    address[] calldata operators,
+    uint32[][] calldata operatorSetIds
+  ) external {}
 
-    /**
-     * @notice Calculates the digest hash to be signed by an operator to register with an AVS
-     * @param operator The account registering as an operator
-     * @param avs The AVS the operator is registering to
-     * @param salt A unique and single use value associated with the approver signature.
-     * @param expiry Time after which the approver's signature becomes invalid
-     */
-    function calculateOperatorAVSRegistrationDigestHash(
-        address operator,
-        address avs,
-        bytes32 salt,
-        uint256 expiry
-    ) external view returns (bytes32) {}
+  function registerOperatorToOperatorSets(
+    address operator,
+    uint32[] calldata operatorSetIds,
+    ISignatureUtils.SignatureWithSaltAndExpiry memory operatorSignature
+  ) external {}
 
-    /// @notice The EIP-712 typehash for the Registration struct used by the contract
-    function OPERATOR_AVS_REGISTRATION_TYPEHASH() external view returns (bytes32) {}
-} 
+  function forceDeregisterFromOperatorSets(
+    address operator,
+    address avs,
+    uint32[] calldata operatorSetIds,
+    ISignatureUtils.SignatureWithSaltAndExpiry memory operatorSignature
+  ) external {}
+
+  function deregisterOperatorFromOperatorSets(
+    address operator,
+    uint32[] calldata operatorSetIds
+  ) external {}
+
+  function addStrategiesToOperatorSet(
+    uint32 operatorSetId,
+    IStrategy[] calldata strategies
+  ) external {}
+
+  function removeStrategiesFromOperatorSet(
+    uint32 operatorSetId,
+    IStrategy[] calldata strategies
+  ) external {}
+
+  function updateAVSMetadataURI(
+    string calldata metadataURI
+  ) external {}
+
+  function cancelSalt(bytes32 salt) external {}
+
+  function registerOperatorToAVS(
+    address operator,
+    ISignatureUtils.SignatureWithSaltAndExpiry memory operatorSignature
+  ) external {}
+
+  function deregisterOperatorFromAVS(address operator) external {}
+
+  function operatorSaltIsSpent(
+    address operator,
+    bytes32 salt
+  ) external view returns (bool) {}
+
+  function isOperatorSetAVS(
+    address avs
+  ) external view returns (bool) {}
+
+  function isOperatorSet(
+    address avs,
+    uint32 operatorSetId
+  ) external view returns (bool) {}
+
+  function getNumOperatorSetsOfOperator(
+    address operator
+  ) external view returns (uint256) {}
+
+  function inTotalOperatorSets(
+    address operator
+  ) external view returns (uint256) {}
+
+  function calculateOperatorAVSRegistrationDigestHash(
+    address operator,
+    address avs,
+    bytes32 salt,
+    uint256 expiry
+  ) external view returns (bytes32) {}
+
+  function calculateOperatorSetRegistrationDigestHash(
+    address avs,
+    uint32[] calldata operatorSetIds,
+    bytes32 salt,
+    uint256 expiry
+  ) external view returns (bytes32) {}
+
+  function calculateOperatorSetForceDeregistrationTypehash(
+    address avs,
+    uint32[] calldata operatorSetIds,
+    bytes32 salt,
+    uint256 expiry
+  ) external view returns (bytes32) {}
+
+  function OPERATOR_AVS_REGISTRATION_TYPEHASH()
+    external
+    view
+
+   returns (bytes32)
+  {}
+
+  function OPERATOR_SET_REGISTRATION_TYPEHASH()
+    external
+    view
+
+   returns (bytes32)
+  {}
+
+  function operatorSetStatus(
+    address avs,
+    address operator,
+    uint32 operatorSetId
+  )
+    external
+    view
+
+   returns (bool registered, uint32 lastDeregisteredTimestamp)
+  {}
+
+  function initialize(
+    address initialOwner,
+    IPauserRegistry _pauserRegistry,
+    uint256 initialPausedStatus
+  ) external {}
+
+  function operatorSetMemberAtIndex(
+    OperatorSet memory operatorSet,
+    uint256 index
+  ) external view returns (address) {}
+
+  function getOperatorsInOperatorSet(
+    OperatorSet memory operatorSet,
+    uint256 start,
+    uint256 length
+  ) external view returns (address[] memory operators) {}
+
+  function getStrategiesInOperatorSet(
+    OperatorSet memory operatorSet
+  ) external view returns (IStrategy[] memory strategies) {}
+
+  function getNumOperatorsInOperatorSet(
+    OperatorSet memory operatorSet
+  ) external view returns (uint256) {}
+
+  function isMember(
+    address operator,
+    OperatorSet memory operatorSet
+  ) external view returns (bool) {}
+
+  function isOperatorSlashable(
+    address operator,
+    OperatorSet memory operatorSet
+  ) external view returns (bool) {}
+
+  function isOperatorSetBatch(
+    OperatorSet[] calldata operatorSets
+  ) external view returns (bool) {}
+}
