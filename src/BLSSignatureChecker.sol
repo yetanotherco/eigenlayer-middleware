@@ -19,7 +19,8 @@ contract BLSSignatureChecker is IBLSSignatureChecker {
     using BN254 for BN254.G1Point;
 
     // CONSTANTS & IMMUTABLES
-
+    bytes internal constant ALIGNED_QUORUM_NUMBER = hex"00"; // TODO check if we can remove this constant without affecting the contract storage
+    
     // gas cost of multiplying 2 pairings
     uint256 internal constant PAIRING_EQUALITY_CHECK_GAS = 120_000;
 
