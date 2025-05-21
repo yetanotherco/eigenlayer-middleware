@@ -155,10 +155,14 @@ contract RegistryCoordinator is
 
         // For each quorum, validate that the new operator count does not exceed the maximum
         // (If it does, an operator needs to be replaced -- see `registerOperatorWithChurn`)
-        require(
-            numOperatorsPerQuorum[0] <= _quorumParams[0].maxOperatorCount,
-            "qMaxOp"
-        );
+        for (uint256 i = 0; i < quorumNumbers.length; i++) {
+            uint8 quorumNumber = uint8(quorumNumbers[i]);
+
+            require(
+                numOperatorsPerQuorum[i] <= _quorumParams[quorumNumber].maxOperatorCount,
+                "c"
+            );
+        }
     }
 
     /**
@@ -212,25 +216,26 @@ contract RegistryCoordinator is
 
         // Check that each quorum's operator count is below the configured maximum. If the max
         // is exceeded, use `operatorKickParams` to deregister an existing operator to make space
-        OperatorSetParam memory operatorSetParams = _quorumParams[uint8(quorumNumbers[0])];
-        
-        /**
-            * If the new operator count for any quorum exceeds the maximum, validate
-            * that churn can be performed, then deregister the specified operator
-            */
-        if (results.numOperatorsPerQuorum[0] > operatorSetParams.maxOperatorCount) {
-            _validateChurn({
-                quorumNumber: uint8(quorumNumbers[0]),
-                totalQuorumStake: results.totalStakes[0],
-                newOperator: msg.sender,
-                newOperatorStake: results.operatorStakes[0],
-                kickParams: operatorKickParams[0],
-                setParams: operatorSetParams
-            });
+        for (uint256 i = 0; i < quorumNumbers.length; i++) {
+            OperatorSetParam memory operatorSetParams = _quorumParams[uint8(quorumNumbers[i])];
 
-            _deregisterOperator(operatorKickParams[0].operator, quorumNumbers[0:1]);
+            /**
+             * If the new operator count for any quorum exceeds the maximum, validate
+             * that churn can be performed, then deregister the specified operator
+             */
+            if (results.numOperatorsPerQuorum[i] > operatorSetParams.maxOperatorCount) {
+                _validateChurn({
+                    quorumNumber: uint8(quorumNumbers[i]),
+                    totalQuorumStake: results.totalStakes[i],
+                    newOperator: msg.sender,
+                    newOperatorStake: results.operatorStakes[i],
+                    kickParams: operatorKickParams[i],
+                    setParams: operatorSetParams
+                });
+
+                _deregisterOperator(operatorKickParams[i].operator, quorumNumbers[i:i+1]);
+            }
         }
-        
     }
 
     /**
