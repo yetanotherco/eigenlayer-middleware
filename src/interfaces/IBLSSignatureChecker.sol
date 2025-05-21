@@ -68,7 +68,8 @@ interface IBLSSignatureChecker {
      * for the total stake (or the operator) or latest before the referenceBlockNumber.
      */
     function checkSignatures(
-        bytes32 msgHash, 
+        bytes32 msgHash,
+        bytes calldata quorumNumbers,
         uint32 referenceBlockNumber,
         NonSignerStakesAndSignature memory nonSignerStakesAndSignature
     ) 
